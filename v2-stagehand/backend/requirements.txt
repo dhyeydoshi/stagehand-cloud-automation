@@ -1,0 +1,23 @@
+# Stagehand-Only Backend Dependencies
+# Python 3.12 Compatible - Minimal and Optimized
+
+# Core Framework
+fastapi==0.121.0
+uvicorn[standard]==0.35.0
+
+# Stagehand AI Automation (core dependency)
+stagehand-python>=0.5.5
+
+# Data Validation (Pydantic v2 for Python 3.12)
+pydantic==2.12.4
+
+# HTTP Client
+httpx==0.26.0
+
+# Configuration
+python-dotenv==1.0.1
+
+# Development & Testing (optional)
+pytest==7.4.4
+pytest-asyncio==0.23.3
+
