@@ -11,7 +11,7 @@
 
 ---
 
-## 🌟 What You Can Do
+## What You Can Do
 
 ### AI-Powered Browser Automation
 - **Natural Language Actions** - `"Click the sign in button"` - No CSS selectors needed
@@ -31,19 +31,22 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-```bash
-# Required
-Python 3.12+
-Browserbase account (free tier available)
-Google AI API key (for Gemini models)
+1. **Install Python 3.12+**
+   - Download from https://www.python.org/downloads/
+   - Verify: `python --version`
 
-# Optional
-Docker (for containerized deployment)
-Azure/AWS account (for cloud deployment)
-```
+2. **Get API Keys**
+   - Browserbase: https://www.browserbase.com/ (API key + Project ID)
+   - Google AI Studio: https://aistudio.google.com/apikey (API key)
+
+
+3. **Optional**
+   - Docker (for containerized deployment)
+   - Azure/AWS account (for cloud deployment)
+
 
 ### 1. Clone and Setup
 
@@ -52,7 +55,14 @@ Azure/AWS account (for cloud deployment)
 git clone <your-repo-url>
 cd v2-stagehand
 
-# Setup backend
+# Create virtual environment (ONE venv for both backend and frontend)
+python -m venv <env_name>
+
+# Activate virtual environment:
+<env_name>\Scripts\activate.bat
+
+
+# Setup backend config
 cd backend
 cp .env.example .env
 ```
@@ -84,47 +94,53 @@ VERBOSE=2
 ### 3. Install Dependencies
 
 ```bash
-# Backend
-cd backend
-pip install -r requirements.txt
+# Install all dependencies (with venv activated from step 1)
+# Make sure you're in the project root directory: v2-stagehand/
 
-# Frontend
-cd ../frontend
-pip install -r requirements.txt
+# Install backend dependencies
+pip install -r backend/requirements.txt
+
+# Install frontend dependencies
+pip install -r frontend/requirements.txt
 ```
 
 ### 4. Run Application
 
 **Option 1: Run Separately** (Recommended for development)
 ```bash
-# Terminal 1 - Backend
+# Terminal 1 - Backend (with venv activated)
 cd backend
 python main.py
-# Backend runs on http://localhost:8000
+# Backend runs on http://127.0.0.1:8000
 
-# Terminal 2 - Frontend
+# Terminal 2 - Frontend (activate same venv in new terminal)
 cd frontend
 streamlit run main.py
-# Frontend runs on http://localhost:8501
+# Frontend runs on http://127.0.0.1:8501
 ```
 
 ### 5. Access Application
 
-- **Frontend Dashboard**: http://localhost:8501
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
+- **Frontend Dashboard**: http://127.0.0.1:8501
+- **Backend API**: http://127.0.0.1:8000
+- **API Documentation**: http://127.0.0.1:8000/docs
+- **Health Check**: http://127.0.0.1:8000/health
+
+---
+## Note:
+- Ensure your virtual environment is activated in each terminal before running commands.
+- For code changes, restart the backend and frontend servers.
 
 ---
 
-## 📖 Usage Examples
+## Usage Examples
 
 ### 1. Quick Action (Observe + Act)
 
 **What it does:** Observes elements using AI, then performs an action
 
 **Via Frontend:**
-1. Open http://localhost:8501
+1. Open http://127.0.0.1:8501
 2. Click on "Launch Stagehand" button
 3. Enter URL: `https://example.com`
 4. Instruction: `Click the sign in button`
@@ -213,8 +229,8 @@ response = requests.post(
 )
 
 result = response.json()
-print(f"✅ Workflow completed: {result['success']}")
-print(f"📊 Agent result: {result['result']}")
+print(f"Workflow completed: {result['success']}")
+print(f"Agent result: {result['result']}")
 ```
 
 ### 4. Multi-Step Workflow (Controlled)
@@ -290,7 +306,7 @@ for schema in schemas['schemas']:
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ### System Overview
 
@@ -410,51 +426,7 @@ Frontend Display
 
 ---
 
-## 🔧 Configuration
-
-### Environment Variables
-
-**Required for Stagehand:**
-```env
-# Stagehand/Browserbase (Required)
-STAGEHAND_ENV=BROWSERBASE
-BROWSERBASE_API_KEY=your-browserbase-api-key
-BROWSERBASE_PROJECT_ID=your-project-id
-
-# AI Model (Required - Google Gemini recommended)
-MODEL_API_KEY=your-google-ai-api-key
-MODEL_NAME=gemini-2.0-flash-exp
-```
-
-**Optional Application Settings:**
-```env
-# Application
-VERSION=1.0.0
-ENVIRONMENT=development
-DEBUG=True
-HOST=0.0.0.0
-PORT=8000
-LOG_LEVEL=INFO
-VERBOSE=1
-
-# Stagehand Behavior
-DOM_SETTLE_TIMEOUT_MS=30000
-SELF_HEAL=True
-
-# CORS (Frontend URLs)
-CORS_ORIGINS=["http://localhost:3000","http://localhost:8080","http://localhost:8501"]
-```
-
-**Notes:**
-- See `backend/.env.example` for complete template
-- `MODEL_NAME` can be any Multimodal LLM model (gemini, openai, anthropic, etc.)
-- `VERBOSE` levels: 0 (minimal), 1 (medium), 2 (detailed)
-- Frontend automatically imports backend config via `frontend/config.py`
-
----
-
-
-## 🚀 Deployment Options
+## Deployment Options(Will upload the required files separately)
 
 ### Cloud Deployment
 
@@ -520,9 +492,9 @@ Deploy frontend separately to Streamlit Cloud (FREE):
 ---
 
 
-## 🚀 Status & Roadmap
+## Status & Roadmap
 
-### ✅ Current Status (v1.0)
+### Current Status (v1.0)
 
 **Production Ready:**
 - ✅ Python 3.12 compatible

@@ -1,11 +1,3 @@
-# Python 3.12 Compatible Frontend Dependencies
-# Optimized and minimal dependencies
-
-# Core Framework
 streamlit>=1.50.0
-
-# HTTP Client
 requests>=2.31.0
-
-# Image Processing (for screenshots)
 Pillow>=11.3.0

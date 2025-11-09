@@ -23,12 +23,12 @@ def _load_backend_config():
         import importlib.util
         spec = importlib.util.spec_from_file_location(
             "backend_config",
-            backend_path / "frontend_config.py"
+            backend_path / "config.py"
         )
         backend_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(backend_config)
 
-        _backend_settings = backend_config.settings
+        _backend_settings = backend_config.get_settings()
         _backend_config_loaded = True
         return _backend_settings
 
