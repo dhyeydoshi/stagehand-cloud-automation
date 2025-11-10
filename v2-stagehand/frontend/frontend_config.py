@@ -2,7 +2,6 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
-# Add backend directory to Python path
 backend_path = Path(__file__).resolve().parent.parent / "backend"
 backend_path_str = str(backend_path)
 
@@ -37,7 +36,6 @@ def _load_backend_config():
         print("Using fallback configuration...")
         _backend_config_loaded = False
         return None
-# Load backend config once
 backend_settings = _load_backend_config()
 
 BACKEND_CONFIG_LOADED = _backend_config_loaded

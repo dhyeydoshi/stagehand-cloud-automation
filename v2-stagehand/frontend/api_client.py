@@ -46,13 +46,11 @@ class APIClient:
             logger.error(f"Request failed: {method} {url} - {e}")
             raise
 
-    # Health & Status
     @handle_api_errors
     def health_check(self) -> bool:
         result = self._request('GET', '/health')
         return result is not None
 
-    # Stagehand Features
     @handle_api_errors
     def stagehand_action(self, url: str, instruction: str, draw_overlay: bool = False,
                         take_screenshots: bool = True) -> Optional[Dict]:
@@ -125,12 +123,10 @@ class APIClient:
             if not result:
                 return {}
 
-            # Handle different response formats
             if isinstance(result, dict):
                 if 'schemas' in result:
                     schemas_data = result['schemas']
 
-                    # Convert list to dict using 'name' as key
                     if isinstance(schemas_data, list):
                         return {
                             schema.get('name', f'schema_{i}'): {
@@ -145,7 +141,6 @@ class APIClient:
 
                 return result
 
-            # If result is a list, convert to dict using 'name' as key
             elif isinstance(result, list):
                 return {
                     schema.get('name', f'schema_{i}'): {

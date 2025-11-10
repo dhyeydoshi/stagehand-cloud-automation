@@ -1,20 +1,17 @@
 import streamlit as st
 import logging
 
-# Import from frontend config (which handles backend import internally)
 from frontend_config import get_frontend_settings
 
 frontend_settings = get_frontend_settings()
 
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Page configuration
 st.set_page_config(
     page_title=f"{frontend_settings.APP_NAME} - Home",
     page_icon="⚡",
@@ -22,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -51,7 +47,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Import components
 from api_client import APIClient
 from stagehand_features import StagehandFeaturesUI
 
@@ -70,7 +65,6 @@ def render_sidebar():
         </div>
         """, unsafe_allow_html=True)
 
-        # Health check
         if st.session_state.api_client.health_check():
             st.success("Backend Connected")
         else:
@@ -79,7 +73,6 @@ def render_sidebar():
 
         st.divider()
 
-        # About
         st.subheader("About Stagehand")
         st.markdown("""
         **Stagehand** is an AI-powered browser automation tool that understands natural language.
@@ -97,12 +90,11 @@ def render_sidebar():
 
         st.divider()
 
-        # Configuration status
         with st.expander("Configuration", expanded=False):
             st.markdown("""
             **Required Environment Variables:**
             ```
-            STAGEHAND_ENV=BROWSERBASE
+            STAGEHAND_ENV=BROWSERBASE or LOCAL
             BROWSERBASE_API_KEY=your_key
             BROWSERBASE_PROJECT_ID=your_project
             MODEL_API_KEY=your_model_key
@@ -112,7 +104,7 @@ def render_sidebar():
             Set these in `backend/.env` file.
             """)
 
-        # Tips
+
         with st.expander("Tips & Best Practices", expanded=False):
             st.markdown("""
             **Keep actions atomic:**
@@ -143,7 +135,6 @@ def render_home():
 
     st.markdown("---")
 
-    # Feature cards
     col1, col2 = st.columns(2)
 
     with col1:
@@ -168,15 +159,15 @@ def render_home():
         """)
 
     with col2:
-        st.markdown("""
-        ### Extract Data
-        Extract structured data using predefined schemas.
-        - Product information
-        - Job postings
-        - Company details
-        
-        **Example:** Extract name, price, and rating
-        """)
+        # st.markdown("""
+        # ### Extract Data
+        # Extract structured data using predefined schemas.
+        # - Product information
+        # - Job postings
+        # - Company details
+        #
+        # **Example:** Extract name, price, and rating
+        # """)
 
         st.markdown("""
         ### Multi-Step Workflows
@@ -190,7 +181,6 @@ def render_home():
 
     st.markdown("---")
 
-    # Quick start
     st.subheader("Quick Start")
 
     col1, col2, col3 = st.columns(3)
@@ -218,7 +208,6 @@ def render_home():
 
     st.markdown("---")
 
-    # Launch button
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         if st.button("Launch Stagehand", type="primary", use_container_width=True):
@@ -229,27 +218,22 @@ def render_home():
 def main():
     init_session_state()
 
-    # Render sidebar
     render_sidebar()
 
-    # Check if we should show features or home
     if 'show_features' not in st.session_state:
         st.session_state.show_features = False
 
-    # Main content
     try:
         if st.session_state.show_features:
             # Show Stagehand features
             stagehand_ui = StagehandFeaturesUI(st.session_state.api_client)
             stagehand_ui.render()
 
-            # Back button
             st.markdown("---")
             if st.button("Back to Home"):
                 st.session_state.show_features = False
                 st.rerun()
         else:
-            # Show home/welcome page
             render_home()
 
     except Exception as e:

@@ -13,11 +13,10 @@ class StagehandFeaturesUI:
     def render(self):
         st.header("Stagehand AI Features")
 
-        # Feature selector tabs
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2,  tab4 = st.tabs([
             "Quick Action",
             "Agent Workflow",
-            "Extract Data",
+            #"Extract Data",
             "Multi-Step"
         ])
 
@@ -27,8 +26,8 @@ class StagehandFeaturesUI:
         with tab2:
             self._render_agent_workflow()
 
-        with tab3:
-            self._render_extraction()
+        # with tab3:
+        #     self._render_extraction()
 
         with tab4:
             self._render_multistep()
@@ -59,7 +58,6 @@ class StagehandFeaturesUI:
 
             submitted = st.form_submit_button("Execute", use_container_width=True)
 
-        # Process form submission OUTSIDE the form
         if submitted and url and instruction:
             with st.spinner("Executing action..."):
                 result = self.api.stagehand_action(url, instruction, draw_overlay, take_screenshots)
@@ -94,7 +92,6 @@ class StagehandFeaturesUI:
 
             submitted = st.form_submit_button("Execute Workflow", use_container_width=True)
 
-        # Process form submission OUTSIDE the form
         if submitted and url and instruction:
             with st.spinner("Executing workflow... This may take a while."):
                 result = self.api.stagehand_workflow(url, instruction, max_steps, auto_screenshot, wait_between)
@@ -102,15 +99,11 @@ class StagehandFeaturesUI:
                     self._display_result(result, "Workflow")
 
     def _render_extraction(self):
-        """Render data extraction interface"""
         st.subheader("Extract Data - Structured Extraction")
 
-        # Get available schemas
         schemas_response = self.api.get_stagehand_schemas()
 
-        # Handle both dict and list responses from backend
         if isinstance(schemas_response, list):
-            # Convert list to dict format
             schemas = {schema.get('name', f'schema_{i}'): schema for i, schema in enumerate(schemas_response)}
         elif isinstance(schemas_response, dict):
             schemas = schemas_response
@@ -131,21 +124,17 @@ class StagehandFeaturesUI:
                 format_func=lambda x: f"{x} - {schemas.get(x, {}).get('description', 'N/A')}"
             )
 
-            # Show schema details
             if schema_name and schema_name in schemas:
                 with st.expander("Schema Fields", expanded=False):
                     schema_fields = schemas[schema_name].get('fields', [])
 
-                    # Handle both list and dict formats
                     if isinstance(schema_fields, list):
-                        # Backend returns list of field names
                         if schema_fields:
                             st.write("**Fields:**")
                             for field in schema_fields:
                                 if isinstance(field, str):
                                     st.write(f"• **{field}**")
                                 elif isinstance(field, dict):
-                                    # Field with details
                                     field_name = field.get('name', 'unknown')
                                     field_desc = field.get('description', '')
                                     required = "[Required]" if field.get('required') else "[Optional]"
@@ -154,7 +143,6 @@ class StagehandFeaturesUI:
                             st.write("No field details available for this schema.")
 
                     elif isinstance(schema_fields, dict):
-                        # Dict format (field_name: field_info)
                         if schema_fields:
                             for field, info in schema_fields.items():
                                 if isinstance(info, dict):
@@ -178,7 +166,6 @@ class StagehandFeaturesUI:
 
             submitted = st.form_submit_button("Extract Data", use_container_width=True)
 
-        # Process form submission OUTSIDE the form
         if submitted and url and instruction and schema_name:
             with st.spinner("Extracting data..."):
                 result = self.api.stagehand_extract(url, instruction, schema_name, take_screenshots)
@@ -186,7 +173,6 @@ class StagehandFeaturesUI:
                     self._display_result(result, "Extraction")
 
     def _render_multistep(self):
-        """Render multi-step workflow builder"""
         st.subheader("Multi-Step Workflow - Sequential Instructions")
 
         st.info("""
@@ -196,11 +182,10 @@ class StagehandFeaturesUI:
         - NOT: "Open filters and select Electronics" (too complex for one step)
         """)
 
-        # Initialize session state
         if 'multistep_instructions' not in st.session_state:
             st.session_state.multistep_instructions = []
 
-        # URL input
+
         col1, col2 = st.columns([3, 1])
         with col1:
             url = st.text_input("Target URL", value="https://example.com", key="multistep_url")
@@ -210,7 +195,6 @@ class StagehandFeaturesUI:
                 st.session_state.multistep_instructions = []
                 st.rerun()
 
-        # Instruction builder
         with st.expander("Add New Step", expanded=len(st.session_state.multistep_instructions) == 0):
             with st.form("add_step_form"):
                 col1, col2 = st.columns([1, 2])
@@ -251,7 +235,6 @@ class StagehandFeaturesUI:
                     st.success(f"Step {step_number} added")
                     st.rerun()
 
-        # Display instructions
         if st.session_state.multistep_instructions:
             st.subheader(f"Instructions ({len(st.session_state.multistep_instructions)})")
 
@@ -267,14 +250,12 @@ class StagehandFeaturesUI:
                 with col4:
                     if st.button("Delete", key=f"del_{idx}"):
                         st.session_state.multistep_instructions.pop(idx)
-                        # Renumber steps
                         for i, s in enumerate(st.session_state.multistep_instructions):
                             s['step_number'] = i + 1
                         st.rerun()
 
             st.divider()
 
-            # Execution settings
             col1, col2, col3 = st.columns(3)
             with col1:
                 take_screenshots = st.checkbox("Take screenshots", value=True, key="ms_screenshots")
@@ -283,7 +264,6 @@ class StagehandFeaturesUI:
             with col3:
                 stop_on_error = st.checkbox("Stop on error", value=False, key="ms_stop")
 
-            # Execute button
             if st.button("Execute Workflow", type="primary", use_container_width=True):
                 with st.spinner("Executing multi-step workflow..."):
                     result = self.api.stagehand_multistep(
@@ -297,14 +277,12 @@ class StagehandFeaturesUI:
                         self._display_multistep_result(result)
 
     def _display_result(self, result: Dict, result_type: str):
-        """Display standard result"""
         st.divider()
         st.subheader(f"{result_type} Results")
 
         if result.get('success'):
             st.success(f"{result_type} completed successfully!")
 
-            # Metrics
             col1, col2 = st.columns(2)
             with col1:
                 if 'processing_time' in result:
@@ -313,7 +291,6 @@ class StagehandFeaturesUI:
                 if 'observed_elements' in result:
                     st.metric("Observed Elements", result['observed_elements'])
 
-            # Data
             if result.get('data'):
                 st.write("**Extracted Data:**")
                 st.json(result['data'])
@@ -322,7 +299,6 @@ class StagehandFeaturesUI:
                 st.write("**Result:**")
                 st.json(result['result'])
 
-            # Screenshots (from artifacts)
             artifacts = result.get('artifacts', [])
             if artifacts:
                 st.write("**Screenshots:**")
@@ -330,15 +306,12 @@ class StagehandFeaturesUI:
                     if artifact.get('type') == 'screenshot' and artifact.get('data'):
                         try:
                             from PIL import Image
-                            # Decode base64 screenshot
                             img_data = base64.b64decode(artifact['data'])
                             img = Image.open(BytesIO(img_data))
 
-                            # Display with expander for better UX
                             with st.expander(f"Screenshot {idx + 1}", expanded=True):
                                 st.image(img, caption=f"{result_type} Screenshot", use_container_width=True)
 
-                                # Download individual screenshot
                                 st.download_button(
                                     f"Download Screenshot {idx + 1}",
                                     data=img_data,
@@ -350,7 +323,6 @@ class StagehandFeaturesUI:
                             st.error(f"Failed to display screenshot: {str(e)}")
                             st.caption("Screenshot data available but could not be displayed")
 
-            # Download button
             st.download_button(
                 "Download Results (JSON)",
                 data=json.dumps(result, indent=2),
@@ -361,17 +333,14 @@ class StagehandFeaturesUI:
             st.error(f"{result_type} failed: {result.get('error', 'Unknown error')}")
 
     def _display_multistep_result(self, result: Dict):
-        """Display multi-step workflow results"""
         st.divider()
         st.subheader("Multi-Step Workflow Results")
 
-        # Overall status
         if result.get("success"):
             st.success("Workflow completed successfully!")
         else:
             st.error("Workflow failed")
 
-        # Metrics
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Steps", result.get("total_steps", 0))
@@ -385,7 +354,6 @@ class StagehandFeaturesUI:
         with col4:
             st.metric("Execution Time", f"{result.get('total_execution_time', 0):.2f}s")
 
-        # Step results
         st.subheader("Step-by-Step Results")
 
         for step in result.get("steps", []):
@@ -413,7 +381,6 @@ class StagehandFeaturesUI:
                             img = Image.open(BytesIO(img_data))
                             st.image(img, caption=f"Step {step['step_number']}", use_container_width=True)
 
-                            # Download individual screenshot
                             st.download_button(
                                 "Download",
                                 data=base64.b64decode(step['screenshot']),
@@ -426,7 +393,6 @@ class StagehandFeaturesUI:
                             st.error(f"Failed to display screenshot: {str(e)}")
                             st.caption("Screenshot available")
 
-        # Download
         st.download_button(
             "Download Full Results (JSON)",
             data=json.dumps(result, indent=2),
@@ -435,7 +401,6 @@ class StagehandFeaturesUI:
         )
 
     def _get_step_placeholder(self, step_type: str) -> str:
-        """Get placeholder text for step type"""
         placeholders = {
             "goto": "Go to the products section",
             "observe": "Find the login button",
@@ -447,7 +412,6 @@ class StagehandFeaturesUI:
         return placeholders.get(step_type, "Enter instruction...")
 
     def _get_step_help(self, step_type: str) -> str:
-        """Get help text for step type"""
         help_texts = {
             "goto": "Navigate to an URL",
             "observe": "Observe elements before acting on them",
