@@ -237,24 +237,18 @@ response = requests.post(
         "instructions": [
             {
                 "step_number": 1,
-                "instruction_type": "goto",
-                "instruction_text": "Navigate to products section",
-                "wait_after": 1000
+                "instruction_type": "observe",
+                "instruction_text": "Find the search input",
+                "wait_after": 2000
             },
             {
                 "step_number": 2,
-                "instruction_type": "observe",
-                "instruction_text": "Find the search input",
-                "wait_after": 500
-            },
-            {
-                "step_number": 3,
                 "instruction_type": "act",
                 "instruction_text": "Type 'laptop' in search",
                 "wait_after": 1000
             },
             {
-                "step_number": 4,
+                "step_number": 3,
                 "instruction_type": "extract",
                 "instruction_text": "Extract product names and prices",
                 "wait_after": 0
