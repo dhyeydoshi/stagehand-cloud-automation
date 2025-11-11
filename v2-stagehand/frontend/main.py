@@ -80,10 +80,10 @@ def render_sidebar():
         **Key Features:**
         - **Quick Actions** - Single atomic actions
         - **Agent Workflows** - Complex multi-step tasks
-        - **Extract Data** - Structured data extraction
         - **Multi-Step** - Sequential instructions
         
         **Powered by:**
+        - Stagehand backend for orchestration
         - Browserbase for browser infrastructure
         - AI models for understanding and execution
         """)
@@ -95,8 +95,8 @@ def render_sidebar():
             **Required Environment Variables:**
             ```
             STAGEHAND_ENV=BROWSERBASE or LOCAL
-            BROWSERBASE_API_KEY=your_key
-            BROWSERBASE_PROJECT_ID=your_project
+            BROWSERBASE_API_KEY=your_key (if using BROWSERBASE)
+            BROWSERBASE_PROJECT_ID=your_project (if using BROWSERBASE)
             MODEL_API_KEY=your_model_key
             MODEL_NAME=your_model_name
             ```
@@ -225,7 +225,6 @@ def main():
 
     try:
         if st.session_state.show_features:
-            # Show Stagehand features
             stagehand_ui = StagehandFeaturesUI(st.session_state.api_client)
             stagehand_ui.render()
 

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from config import settings
 
 
@@ -13,35 +13,55 @@ class StagehandService:
     def __init__(self):
         pass
 
-    async def _create_browserbase_session(self, config: Dict[str, Any] = None):
+    async def _create_session(self, config: Dict[str, Any] = None):
         try:
             import os
             from stagehand import Stagehand, StagehandConfig
 
-            logger.info("Creating new Browserbase session")
+            env = settings.STAGEHAND_ENV
+            env = env.upper()
+
+            if env not in ["LOCAL", "BROWSERBASE"]:
+                raise ValueError(f"Invalid environment: {env}. Must be 'LOCAL' or 'BROWSERBASE'")
+
+            logger.info(f"Creating new {env} session")
 
             using_openrouter = (
                 settings.MODEL_BASE_URL and "openrouter" in settings.MODEL_BASE_URL.lower()
             )
 
-            # Build config parameters
             config_params: Dict[str, Any] = {
-                "env": "BROWSERBASE",
+                "env": env,
                 "verbose": settings.VERBOSE,
                 "dom_settle_timeout_ms": settings.DOM_SETTLE_TIMEOUT_MS,
                 "self_heal": settings.SELF_HEAL,
-                "api_key": settings.BROWSERBASE_API_KEY,
-                "project_id": settings.BROWSERBASE_PROJECT_ID,
+                "headless": settings.HEADLESS,
                 "system_prompt": "You are a browser automation assistant that helps users navigate websites effectively.",
-
             }
+
+
+            if env == "BROWSERBASE":
+
+                config_params["api_key"] = settings.BROWSERBASE_API_KEY
+                config_params["project_id"] = settings.BROWSERBASE_PROJECT_ID
+
+            elif env == "LOCAL":
+                config_params["local_browser_launch_options"] = {
+                    "viewport": {"width": 1280, "height": 720},
+                    "headless": settings.HEADLESS,
+                    # "args": [
+                    #     "--no-sandbox",
+                    #     "--disable-setuid-sandbox",
+                    #     "--disable-web-security",
+                    #     "--allow-running-insecure-content",
+                    # ]
+                }
 
             if settings.MODEL_NAME:
                 config_params["model_name"] = settings.MODEL_NAME
             if settings.MODEL_API_KEY:
                 config_params["model_api_key"] = settings.MODEL_API_KEY
 
-            # OpenRouter configuration
             if using_openrouter and settings.MODEL_BASE_URL:
                 try:
                     config_params["model_client_options"] = {
@@ -52,14 +72,13 @@ class StagehandService:
                     logger.warning(f"Could not set model_client_options: {e}")
 
             logger.info(f"Initializing Stagehand with model: {config_params.get('model_name')}")
-            logger.info(f"Browserbase mode: env=BROWSERBASE")
+            logger.info(f"Environment mode: {env}")
 
-            # Create and initialize session
             stagehand_config = StagehandConfig(**config_params)
             stagehand = Stagehand(stagehand_config)
             await stagehand.init()
 
-            logger.info("✓ Browserbase session created successfully")
+            logger.info(f"✓ {env} session created successfully")
             return stagehand
 
         except ValueError as ve:
@@ -67,31 +86,51 @@ class StagehandService:
             raise
 
         except Exception as e:
-            logger.error(f"Failed to create Browserbase session: {e}")
+            logger.error(f"Failed to create session: {e}")
             raise
 
-    async def _close_browserbase_session(self, stagehand):
-
+    async def _close_session(self, stagehand):
         if not stagehand:
             return
 
         try:
             if hasattr(stagehand, 'close'):
                 await stagehand.close()
-                logger.info("✓ Browserbase session closed successfully")
+                logger.info("✓ Session closed successfully")
             else:
                 logger.warning("Stagehand instance has no close method")
         except Exception as e:
-            logger.error(f"Error closing Browserbase session: {e}")
-            # Don't raise - we want to continue even if close fails
+            logger.error(f"Error closing session: {e}")
+
+    async def _navigate_with_retry(self, page, url: str, max_retries: int = 3) -> bool:
+        timeout = settings.PAGE_NAVIGATION_TIMEOUT_MS
+
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Navigating to {url} (attempt {attempt + 1}/{max_retries}, timeout: {timeout}ms)")
+                await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+                logger.info(f"✓ Successfully navigated to {url}")
+                return True
+            except Exception as e:
+                error_msg = str(e)
+                logger.warning(f"Navigation attempt {attempt + 1} failed: {error_msg}")
+
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to navigate to {url} after {max_retries} attempts")
+                    raise Exception(f"Navigation timeout: Failed to load {url} after {max_retries} attempts. Last error: {error_msg}")
+
+        return False
 
     async def test_connection(self) -> bool:
         try:
-            # Verify required configuration is present
-            if not settings.BROWSERBASE_API_KEY:
+            if not settings.BROWSERBASE_API_KEY and settings.STAGEHAND_ENV == "BROWSERBASE":
                 logger.warning("BROWSERBASE_API_KEY not configured")
                 return False
-            if not settings.BROWSERBASE_PROJECT_ID:
+            if not settings.BROWSERBASE_PROJECT_ID and settings.STAGEHAND_ENV == "BROWSERBASE":
                 logger.warning("BROWSERBASE_PROJECT_ID not configured")
                 return False
             if not settings.MODEL_API_KEY:
@@ -115,36 +154,35 @@ class StagehandService:
         stagehand = None
 
         try:
-            # Create session
-            stagehand = await self._create_browserbase_session(config)
+            stagehand = await self._create_session(config)
             page = stagehand.page
 
-            # Navigate to URL
-            await page.goto(url)
+            await self._navigate_with_retry(page, url)
 
-            # Use observe to plan the action
             draw_overlay = config.get("draw_overlay", False)
             results = await page.observe(
                 instruction=action_instruction,
                 draw_overlay=draw_overlay
             )
 
-            # Execute the action using the first observed result
             if results:
                 logger.info(f"Observed {len(results)} elements, executing action: {action_instruction}")
                 await page.act(results[0])
 
-                # Take screenshot if requested
                 artifacts = []
                 if config.get("take_screenshots", False):
                     import base64
-                    screenshot_bytes = await page.screenshot()
-                    screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-                    artifacts.append({
-                        "type": "screenshot",
-                        "data": screenshot_b64,
-                        "format": "png"
-                    })
+                    for i, element in enumerate(results):
+                        locator = page.locator(element.selector)
+                        await locator.scroll_into_view_if_needed()
+                        element_screenshot_bytes = await locator.screenshot()
+                        element_screenshot_b64 = base64.b64encode(element_screenshot_bytes).decode('utf-8')
+                        artifacts.append({
+                            "type": "screenshot",
+                            "data": element_screenshot_b64,
+                            "format": "png",
+                            "description": element.description or f"Screenshot of observed element {i + 1}"
+                        })
 
                 return {
                     "success": True,
@@ -161,7 +199,7 @@ class StagehandService:
                     "error": "No elements observed for the given instruction",
                     "error_code": "NO_ELEMENTS_FOUND",
                     "action": action_instruction,
-                    "observed_elements": 0,  # No elements found
+                    "observed_elements": 0,
                     "artifacts": [],
                     "url": url,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -175,7 +213,7 @@ class StagehandService:
                 "error": str(e),
                 "error_code": "ACTION_EXECUTION_ERROR",
                 "action": action_instruction,
-                "observed_elements": 0,  # Error occurred before observing
+                "observed_elements": 0,
                 "artifacts": [],
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -185,7 +223,7 @@ class StagehandService:
         finally:
             # Always close session
             if stagehand:
-                await self._close_browserbase_session(stagehand)
+                await self._close_session(stagehand)
 
     async def extract_with_schema(
         self,
@@ -198,34 +236,16 @@ class StagehandService:
         stagehand = None
 
         try:
-            if settings.STAGEHAND_ENV != "BROWSERBASE":
-                return {
-                    "success": False,
-                    "error": "Browserbase mode required for this feature",
-                    "error_code": "INVALID_ENVIRONMENT",
-                    "data": {},
-                    "schema": schema.__name__ if hasattr(schema, '__name__') else str(schema),
-                    "instruction": instruction,
-                    "artifacts": [],
-                    "url": url,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "processing_time": time.time() - start_time
-                }
-
-            # Create session
-            stagehand = await self._create_browserbase_session(config)
+            stagehand = await self._create_session(config)
             page = stagehand.page
 
-            # Navigate to URL
-            await page.goto(url)
+            await self._navigate_with_retry(page, url)
 
-            # Extract data using schema
             data = await page.extract(
                 instruction=instruction,
                 schema=schema
             )
 
-            # Take screenshot if requested
             artifacts = []
             if config.get("take_screenshots", False):
                 import base64
@@ -254,7 +274,7 @@ class StagehandService:
                 "success": False,
                 "error": str(e),
                 "error_code": "EXTRACTION_ERROR",
-                "data": {},  # Empty dict for failed extraction
+                "data": {},
                 "schema": schema.__name__ if hasattr(schema, '__name__') else str(schema),
                 "instruction": instruction,
                 "artifacts": [],
@@ -264,9 +284,8 @@ class StagehandService:
             }
 
         finally:
-            # Always close session
             if stagehand:
-                await self._close_browserbase_session(stagehand)
+                await self._close_session(stagehand)
 
     async def execute_workflow_with_agent(
         self,
@@ -278,23 +297,15 @@ class StagehandService:
         stagehand = None
 
         try:
-            # Create session
-            stagehand = await self._create_browserbase_session(config)
+            stagehand = await self._create_session(config)
             page = stagehand.page
 
-            # Navigate to URL
-            await page.goto(url)
+            await self._navigate_with_retry(page, url)
 
-            # Create agent
-            agent_model = config.get("agent_model", "computer-use-preview")
+            agent_model = 'gemini-2.5-computer-use-preview-10-2025'
             agent_instructions = config.get("agent_instructions", "You are a helpful web navigation assistant.")
 
-            # Get API key based on model
-            api_key = None
-            if "claude" in agent_model.lower():
-                api_key = config.get("anthropic_api_key") or settings.MODEL_API_KEY
-            elif "gpt" in agent_model.lower() or "computer-use" in agent_model.lower():
-                api_key = config.get("openai_api_key") or settings.MODEL_API_KEY
+            api_key = settings.MODEL_API_KEY
 
             agent_options = {}
             if api_key:
@@ -306,10 +317,9 @@ class StagehandService:
                 options=agent_options
             )
 
-            # Execute workflow
             max_steps = config.get("max_steps", 20)
             auto_screenshot = config.get("auto_screenshot", True)
-            wait_between_actions = config.get("wait_between_actions", 1000)
+            wait_between_actions = config.get("wait_between_actions", 45000)
 
             result = await agent.execute(
                 instruction=workflow_instruction,
@@ -335,7 +345,7 @@ class StagehandService:
                 "error": str(e),
                 "error_code": "WORKFLOW_EXECUTION_ERROR",
                 "workflow": workflow_instruction,
-                "result": None,  # No result when error occurs
+                "result": None,
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "processing_time": time.time() - start_time,
@@ -343,18 +353,9 @@ class StagehandService:
             }
 
         finally:
-            # Always close session
             if stagehand:
-                await self._close_browserbase_session(stagehand)
+                await self._close_session(stagehand)
 
-    async def cleanup(self):
-        try:
-            # No Stagehand session to clean - sessions are per-job
-            logger.info("StagehandService cleanup completed (session-per-job mode)")
-
-
-        except Exception as e:
-            logger.error(f"Error during StagehandService cleanup: {e}")
 
     async def process_multi_step_instructions(
         self,
@@ -366,23 +367,51 @@ class StagehandService:
         stagehand = None
 
         try:
-            logger.info("Creating Browserbase session for multi-step workflow")
-            stagehand = await self._create_browserbase_session(config)
+            logger.info("Creating session for multi-step workflow")
+            stagehand = await self._create_session(config)
             page = stagehand.page
             steps_results = []
 
-            await page.goto(url)
+            await self._navigate_with_retry(page, url)
             logger.info(f"Navigated to {url}")
 
-            await asyncio.sleep(2)
-            logger.info("Page load wait completed")
+            # Wait for page to be fully stable - comprehensive loading strategy
+            logger.info("Waiting for page to fully load (content, scripts, CSS)...")
 
-            # Process each instruction sequentially
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=60000)
+                logger.info("✓ DOM content loaded")
+            except Exception as e:
+                logger.warning(f"DOM content loaded timeout: {e}")
+
+            try:
+                await page.wait_for_load_state("load", timeout=20000)
+                logger.info("✓ All resources loaded")
+            except Exception as e:
+                logger.warning(f"Load state timeout: {e}")
+
+            # Step 3: Wait for network to be idle (no ongoing requests)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+                logger.info("✓ Network idle (no active requests)")
+            except Exception as e:
+                logger.warning(f"Network idle timeout: {e}, continuing anyway")
+
+            logger.info("Waiting additional 5 seconds for JavaScript and dynamic content...")
+            await asyncio.sleep(5)
+
+            logger.info("✓ Page fully loaded and stable")
+
             for idx, instruction in enumerate(instructions, 1):
                 step_start = time.time()
-                step_type = instruction.get("instruction_type", "act")
-                instruction_text = instruction.get("instruction_text", "")
-                wait_after = instruction.get("wait_after", 1000)
+                if hasattr(instruction, 'instruction_type'):
+                    step_type = instruction.instruction_type
+                    instruction_text = instruction.instruction_text
+                    wait_after = instruction.wait_after
+                else:
+                    step_type = instruction.get("instruction_type", "act")
+                    instruction_text = instruction.get("instruction_text", "")
+                    wait_after = instruction.get("wait_after", 1000)
 
                 logger.info(f"Processing step {idx}: {step_type} - {instruction_text}")
 
@@ -407,6 +436,25 @@ class StagehandService:
                     elif step_type == "observe":
                         try:
                             logger.info(f"Calling page.observe with instruction: '{instruction_text}'")
+
+                            # Wait for page to be stable before observing - comprehensive check
+                            logger.info("Ensuring page stability before observe operation...")
+                            try:
+                                await page.wait_for_load_state("domcontentloaded", timeout=8000)
+                                logger.info("✓ DOM ready for observe")
+                            except Exception as wait_error:
+                                logger.warning(f"DOM wait failed: {wait_error}")
+
+                            try:
+                                await page.wait_for_load_state("networkidle", timeout=8000)
+                                logger.info("✓ Network idle for observe")
+                            except Exception as wait_error:
+                                logger.warning(f"Network idle wait failed: {wait_error}")
+
+                            # Additional wait for dynamic content and JavaScript
+                            await asyncio.sleep(2)
+                            logger.info("✓ Page stable, proceeding with observe")
+
                             results = await page.observe(
                                 instruction=instruction_text,
                                 draw_overlay=config.get("draw_overlay", False)
@@ -422,7 +470,17 @@ class StagehandService:
                             step_result["success"] = False
                             error_msg = str(observe_error)
 
-                            if "Server returned error" in error_msg:
+                            if "Execution context was destroyed" in error_msg or "navigation" in error_msg.lower():
+                                step_result["error"] = (
+                                    f"Page navigation occurred during observe: {error_msg}. "
+                                    "This usually happens when:\n"
+                                    "1. The page automatically redirected\n"
+                                    "2. A popup or modal appeared\n"
+                                    "3. The page is still loading\n"
+                                    "Try: Add a 'wait' step before observe, or increase wait_after time"
+                                )
+                                step_result["error_code"] = "NAVIGATION_ERROR"
+                            elif "Server returned error" in error_msg:
                                 step_result["error"] = (
                                     f"Stagehand AI model error: {error_msg}. "
                                     "Possible causes:\n"
@@ -439,14 +497,41 @@ class StagehandService:
                                 step_result["error_code"] = "OBSERVE_ERROR"
 
                     elif step_type == "act":
-                        results = await page.observe(instruction=instruction_text)
-                        if results:
-                            await page.act(results[0])
-                            step_result["success"] = True
-                            step_result["data"] = {"action_performed": True}
-                        else:
-                            step_result["error"] = "No elements found to act upon"
-                            step_result["error_code"] = "NO_ELEMENTS_FOUND"
+                        try:
+                            # Wait for page stability before acting - comprehensive check
+                            logger.info("Ensuring page stability before act operation...")
+                            try:
+                                await page.wait_for_load_state("domcontentloaded", timeout=8000)
+                                logger.info("✓ DOM ready for act")
+                            except Exception as wait_error:
+                                logger.warning(f"DOM wait failed: {wait_error}")
+
+                            try:
+                                await page.wait_for_load_state("networkidle", timeout=8000)
+                                logger.info("✓ Network idle for act")
+                            except Exception as wait_error:
+                                logger.warning(f"Network idle wait failed: {wait_error}")
+
+                            # Additional wait for dynamic content
+                            await asyncio.sleep(2)
+                            logger.info("✓ Page stable, proceeding with act")
+
+                            results = await page.observe(instruction=instruction_text)
+                            if results:
+                                await page.act(results[0])
+                                step_result["success"] = True
+                                step_result["data"] = {"action_performed": True}
+                            else:
+                                step_result["error"] = "No elements found to act upon"
+                                step_result["error_code"] = "NO_ELEMENTS_FOUND"
+                        except Exception as act_error:
+                            error_msg = str(act_error)
+                            if "Execution context was destroyed" in error_msg or "navigation" in error_msg.lower():
+                                step_result["error"] = f"Page navigation occurred during action: {error_msg}"
+                                step_result["error_code"] = "NAVIGATION_ERROR"
+                            else:
+                                step_result["error"] = f"Action failed: {error_msg}"
+                                step_result["error_code"] = "ACTION_ERROR"
 
                     elif step_type == "extract":
                         try:
@@ -501,7 +586,6 @@ class StagehandService:
                         step_result["screenshot"] = screenshot_b64
                         step_result["data"] = {"screenshot_taken": True}
 
-                    # Take screenshot if configured
                     if config.get("take_screenshots", False) and step_type != "screenshot":
                         try:
                             import base64
@@ -510,7 +594,6 @@ class StagehandService:
                         except Exception as e:
                             logger.warning(f"Screenshot failed for step {idx}: {e}")
 
-                    # Wait after step
                     if wait_after > 0:
                         await asyncio.sleep(wait_after / 1000)
 
@@ -531,10 +614,8 @@ class StagehandService:
                     step_result["execution_time"] = time.time() - step_start
                     steps_results.append(step_result)
 
-            # Calculate overall success
             all_success = all(step["success"] for step in steps_results)
 
-            # Generate job ID for tracking
             import uuid
             job_id = f"job_{uuid.uuid4().hex[:12]}"
 
@@ -573,8 +654,6 @@ class StagehandService:
             }
 
         finally:
-            # Always close session
             if stagehand:
-                logger.info("Closing Browserbase session after workflow")
-                await self._close_browserbase_session(stagehand)
-
+                logger.info("Closing session after workflow")
+                await self._close_session(stagehand)

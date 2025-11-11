@@ -63,7 +63,7 @@ class APIClient:
                 "draw_overlay": draw_overlay,
                 "take_screenshots": take_screenshots
             },
-            timeout=60
+            timeout=1200
         )
 
     @handle_api_errors
@@ -94,7 +94,7 @@ class APIClient:
                 "auto_screenshot": auto_screenshot,
                 "wait_between_actions": wait_between
             },
-            timeout=300
+            timeout=1200
         )
 
     @handle_api_errors
@@ -156,4 +156,3 @@ class APIClient:
         except Exception as e:
             logger.error(f"Error fetching schemas: {e}")
             return {}
-

@@ -13,7 +13,7 @@ class StagehandFeaturesUI:
     def render(self):
         st.header("Stagehand AI Features")
 
-        tab1, tab2,  tab4 = st.tabs([
+        tab1, tab2, tab4 = st.tabs([
             "Quick Action",
             "Agent Workflow",
             #"Extract Data",
@@ -38,9 +38,18 @@ class StagehandFeaturesUI:
         st.info("""
         **Best for:** Single, atomic actions
         - "Click the sign in button"
-        - "Type 'hello' into the search input"
+        - "Find me list of the phones sold in year 2018"
         - NOT: "Sign in to the website" (too complex)
         """)
+
+        # Clear results button
+        if st.session_state.get('last_result_type') == "Action" and 'last_result' in st.session_state:
+            if st.button("🗑️ Clear Results", key="clear_action_results"):
+                if 'last_result' in st.session_state:
+                    del st.session_state['last_result']
+                if 'last_result_type' in st.session_state:
+                    del st.session_state['last_result_type']
+                st.rerun()
 
         with st.form("quick_action_form"):
             url = st.text_input("Target URL", placeholder="https://example.com")
@@ -56,13 +65,19 @@ class StagehandFeaturesUI:
             with col2:
                 take_screenshots = st.checkbox("Take Screenshots", value=True)
 
-            submitted = st.form_submit_button("Execute", use_container_width=True)
+            submitted = st.form_submit_button("Execute", width='stretch')
 
-        if submitted and url and instruction:
-            with st.spinner("Executing action..."):
-                result = self.api.stagehand_action(url, instruction, draw_overlay, take_screenshots)
-                if result:
-                    self._display_result(result, "Action")
+            if submitted and url and instruction:
+                with st.spinner("Executing action..."):
+                    result = self.api.stagehand_action(url, instruction, draw_overlay, take_screenshots)
+                    if result:
+                        st.session_state['last_result'] = result
+                        st.session_state['last_result_type'] = "Action"
+                        st.rerun()
+
+        # Display persisted results (after form, outside of submission)
+        if st.session_state.get('last_result_type') == "Action" and 'last_result' in st.session_state:
+            self._display_result(st.session_state['last_result'], "Action")
 
     def _render_agent_workflow(self):
         st.subheader("Agent Workflow - Autonomous Execution")
@@ -73,6 +88,15 @@ class StagehandFeaturesUI:
         - "Search for AI automation and click first result"
         - "Apply to first job posting with mock data"
         """)
+
+        # Clear results button
+        if st.session_state.get('last_result_type') == "Workflow" and 'last_result' in st.session_state:
+            if st.button("🗑️ Clear Results", key="clear_workflow_results"):
+                if 'last_result' in st.session_state:
+                    del st.session_state['last_result']
+                if 'last_result_type' in st.session_state:
+                    del st.session_state['last_result_type']
+                st.rerun()
 
         with st.form("agent_workflow_form"):
             url = st.text_input("Starting URL", placeholder="https://example.com")
@@ -90,13 +114,19 @@ class StagehandFeaturesUI:
             with col3:
                 wait_between = st.number_input("Wait (ms)", 0, 10000, 1000, 100)
 
-            submitted = st.form_submit_button("Execute Workflow", use_container_width=True)
+            submitted = st.form_submit_button("Execute Workflow", width='stretch')
 
-        if submitted and url and instruction:
-            with st.spinner("Executing workflow... This may take a while."):
-                result = self.api.stagehand_workflow(url, instruction, max_steps, auto_screenshot, wait_between)
-                if result:
-                    self._display_result(result, "Workflow")
+            if submitted and url and instruction:
+                with st.spinner("Executing workflow... This may take a while."):
+                    result = self.api.stagehand_workflow(url, instruction, max_steps, auto_screenshot, wait_between)
+                    if result:
+                        st.session_state['last_result'] = result
+                        st.session_state['last_result_type'] = "Workflow"
+                        st.rerun()
+
+        # Display persisted results (after form, outside of submission)
+        if st.session_state.get('last_result_type') == "Workflow" and 'last_result' in st.session_state:
+            self._display_result(st.session_state['last_result'], "Workflow")
 
     def _render_extraction(self):
         st.subheader("Extract Data - Structured Extraction")
@@ -164,7 +194,7 @@ class StagehandFeaturesUI:
 
             take_screenshots = st.checkbox("Take Screenshots", value=True)
 
-            submitted = st.form_submit_button("Extract Data", use_container_width=True)
+            submitted = st.form_submit_button("Extract Data", width='stretch')
 
         if submitted and url and instruction and schema_name:
             with st.spinner("Extracting data..."):
@@ -177,14 +207,33 @@ class StagehandFeaturesUI:
 
         st.info("""
         **Build step-by-step workflows.** Keep each step atomic!
+        - The workflow automatically navigates to your Target URL
         - Step 1: "Click filters button"
         - Step 2: "Select Electronics category"
         - NOT: "Open filters and select Electronics" (too complex for one step)
+        
+        **Important for Complex Sites (e-commerce, banking, etc.):**
+        - Add a "wait" step (3000-5000ms) as your FIRST step
+        - This ensures all content, scripts, and CSS are fully loaded
+        - Use higher wait_after values (2000-3000ms) between steps
+        - If you still get navigation errors, increase wait times further
         """)
 
         if 'multistep_instructions' not in st.session_state:
             st.session_state.multistep_instructions = []
 
+        # Form counter to force form reset
+        if 'form_counter' not in st.session_state:
+            st.session_state.form_counter = 0
+
+        # Clear results button
+        if st.session_state.get('last_result_type') == "Multi-Step" and 'last_result' in st.session_state:
+            if st.button("🗑️ Clear Results", key="clear_multistep_results"):
+                if 'last_result' in st.session_state:
+                    del st.session_state['last_result']
+                if 'last_result_type' in st.session_state:
+                    del st.session_state['last_result_type']
+                st.rerun()
 
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -195,22 +244,23 @@ class StagehandFeaturesUI:
                 st.session_state.multistep_instructions = []
                 st.rerun()
 
-        with st.expander("Add New Step", expanded=len(st.session_state.multistep_instructions) == 0):
-            with st.form("add_step_form"):
+        with st.expander("Add New Step", expanded=True):
+            form_key = f"add_step_form_{st.session_state.form_counter}"
+            with st.form(form_key, clear_on_submit=True):
                 col1, col2 = st.columns([1, 2])
 
                 with col1:
                     step_type = st.selectbox(
                         "Step Type",
-                        options=["goto", "observe", "act", "extract", "wait", "screenshot"],
+                        options=["observe", "act", "extract", "wait", "screenshot"],
                         format_func=lambda x: {
-                            "goto": "Navigate",
                             "observe": "Observe",
                             "act": "Act",
                             "extract": "Extract",
                             "wait": "Wait",
                             "screenshot": "Screenshot"
-                        }[x]
+                        }[x],
+                        help="Navigate (goto) is not needed - the workflow automatically starts at the Target URL above"
                     )
 
                 with col2:
@@ -220,9 +270,14 @@ class StagehandFeaturesUI:
                         help=self._get_step_help(step_type)
                     )
 
-                wait_after = st.slider("Wait after (ms)", 0, 10000, 1000, 500)
+                col_wait, col_button = st.columns([2, 1])
 
-                submitted = st.form_submit_button("Add Step", use_container_width=True)
+                with col_wait:
+                    wait_after = st.slider("Wait after (ms)", 0, 10000, 2000, 500)
+
+                with col_button:
+                    st.write("")  # Spacing
+                    submitted = st.form_submit_button("Add Step", use_container_width=True, type="primary")
 
                 if submitted and instruction:
                     step_number = len(st.session_state.multistep_instructions) + 1
@@ -232,11 +287,15 @@ class StagehandFeaturesUI:
                         "instruction_text": instruction,
                         "wait_after": wait_after
                     })
-                    st.success(f"Step {step_number} added")
+                    st.session_state.form_counter += 1  # Increment to force new form
+                    st.success(f"Step {step_number} added successfully!")
                     st.rerun()
+                elif submitted and not instruction:
+                    st.error("Please enter an instruction")
 
         if st.session_state.multistep_instructions:
-            st.subheader(f"Instructions ({len(st.session_state.multistep_instructions)})")
+            st.divider()
+            st.subheader(f"Workflow Steps ({len(st.session_state.multistep_instructions)})")
 
             for idx, step in enumerate(st.session_state.multistep_instructions):
                 col1, col2, col3, col4 = st.columns([0.5, 1.5, 5, 1])
@@ -244,11 +303,11 @@ class StagehandFeaturesUI:
                 with col1:
                     st.markdown(f"**{step['step_number']}**")
                 with col2:
-                    st.markdown(f"{step['instruction_type']}")
+                    st.markdown(f"`{step['instruction_type']}`")
                 with col3:
-                    st.code(step['instruction_text'], language=None)
+                    st.markdown(f"_{step['instruction_text']}_")
                 with col4:
-                    if st.button("Delete", key=f"del_{idx}"):
+                    if st.button("Delete", key=f"del_{idx}", help="Delete this step"):
                         st.session_state.multistep_instructions.pop(idx)
                         for i, s in enumerate(st.session_state.multistep_instructions):
                             s['step_number'] = i + 1
@@ -264,7 +323,7 @@ class StagehandFeaturesUI:
             with col3:
                 stop_on_error = st.checkbox("Stop on error", value=False, key="ms_stop")
 
-            if st.button("Execute Workflow", type="primary", use_container_width=True):
+            if st.button("Execute Workflow", type="primary", width='stretch'):
                 with st.spinner("Executing multi-step workflow..."):
                     result = self.api.stagehand_multistep(
                         url,
@@ -274,7 +333,12 @@ class StagehandFeaturesUI:
                         stop_on_error
                     )
                     if result:
-                        self._display_multistep_result(result)
+                        st.session_state['last_result'] = result
+                        st.session_state['last_result_type'] = "Multi-Step"
+                        st.rerun()
+
+        if st.session_state.get('last_result_type') == "Multi-Step" and 'last_result' in st.session_state:
+            self._display_multistep_result(st.session_state['last_result'])
 
     def _display_result(self, result: Dict, result_type: str):
         st.divider()
@@ -303,6 +367,8 @@ class StagehandFeaturesUI:
             if artifacts:
                 st.write("**Screenshots:**")
                 for idx, artifact in enumerate(artifacts):
+                    if artifact.get('description'):
+                        st.write(f"**Description:** {artifact['description']}")
                     if artifact.get('type') == 'screenshot' and artifact.get('data'):
                         try:
                             from PIL import Image
@@ -310,7 +376,7 @@ class StagehandFeaturesUI:
                             img = Image.open(BytesIO(img_data))
 
                             with st.expander(f"Screenshot {idx + 1}", expanded=True):
-                                st.image(img, caption=f"{result_type} Screenshot", use_container_width=True)
+                                st.image(img, caption=f"{result_type} Screenshot", width='stretch')
 
                                 st.download_button(
                                     f"Download Screenshot {idx + 1}",
@@ -379,7 +445,7 @@ class StagehandFeaturesUI:
                             from PIL import Image
                             img_data = base64.b64decode(step['screenshot'])
                             img = Image.open(BytesIO(img_data))
-                            st.image(img, caption=f"Step {step['step_number']}", use_container_width=True)
+                            st.image(img, caption=f"Step {step['step_number']}", width='stretch')
 
                             st.download_button(
                                 "Download",
@@ -387,7 +453,7 @@ class StagehandFeaturesUI:
                                 file_name=f"step_{step['step_number']}_screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
                                 mime="image/png",
                                 key=f"download_step_{step['step_number']}_screenshot",
-                                use_container_width=True
+                                width='stretch'
                             )
                         except Exception as e:
                             st.error(f"Failed to display screenshot: {str(e)}")

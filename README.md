@@ -71,18 +71,35 @@ cp .env.example .env
 
 Edit `backend/.env` with your credentials:
 
+**Option A: LOCAL Mode** (runs browser locally)
 ```env
-# Required - Stagehand/Browserbase
+# Set to LOCAL mode
+STAGEHAND_ENV=LOCAL
+
+# No Browserbase keys needed
+BROWSERBASE_API_KEY=
+BROWSERBASE_PROJECT_ID=
+
+# Required - AI Model
+MODEL_API_KEY=your_google_ai_api_key
+MODEL_NAME=gemini-2.5-flash
+```
+
+**Option B: BROWSERBASE Mode** (Cloud browser, production-ready)
+```env
+# Set to BROWSERBASE mode
 STAGEHAND_ENV=BROWSERBASE
+
+# Required - Browserbase credentials
 BROWSERBASE_API_KEY=your_browserbase_api_key
 BROWSERBASE_PROJECT_ID=your_browserbase_project_id
 
-# Required - AI Model (Google Gemini recommended)
+# Required - AI Model
 MODEL_API_KEY=your_google_ai_api_key
 MODEL_NAME=gemini-2.5-flash
 MODEL_BASE_URL=
 
-# Optional - Application Settings
+# Application Settings
 ENVIRONMENT=development
 DEBUG=True
 HOST=0.0.0.0
@@ -167,43 +184,7 @@ print(f"Observed {result['observed_elements']} elements")
 print(f"Screenshots: {len(result['artifacts'])}")
 ```
 
-### 2. Extract Structured Data
-
-**What it does:** Extracts data using Pydantic schemas for type safety
-
-**Available Schemas:**
-- `ProductData` - Extract product info (name, price, rating, etc.)
-- `JobPosting` - Extract job details (title, company, salary, etc.)
-- `CompanyInfo` - Extract company data (name, founded year, etc.)
-
-**Via Frontend:**
-1. Navigate to "Extract Data" tab
-2. Enter URL: `https://example.com/product`
-3. Select schema: "ProductData"
-4. Instruction: `Extract product name, price, and rating`
-5. Click "Extract Data"
-
-**Via API:**
-```python
-response = requests.post(
-    "http://localhost:8000/api/v1/stagehand/extract",
-    json={
-        "url": "https://example.com/product",
-        "instruction": "Extract product name, price, and rating",
-        "schema_name": "ProductData",
-        "take_screenshots": True
-    }
-)
-
-result = response.json()
-if result['success']:
-    product = result['data']
-    print(f"Product: {product['name']}")
-    print(f"Price: ${product['price']}")
-    print(f"Rating: {product['rating']}/5")
-```
-
-### 3. Agent Workflow (Autonomous)
+### 2. Agent Workflow (Autonomous)
 
 **What it does:** AI agent executes complex multi-step tasks autonomously
 
@@ -233,7 +214,7 @@ print(f"Workflow completed: {result['success']}")
 print(f"Agent result: {result['result']}")
 ```
 
-### 4. Multi-Step Workflow (Controlled)
+### 3. Multi-Step Workflow
 
 **What it does:** Execute sequential steps with full control over each action
 
@@ -293,17 +274,6 @@ for step in result['steps']:
     print(f"  Step {step['step_number']}: {step['success']}")
 ```
 
-### 5. List Available Schemas
-
-```python
-response = requests.get("http://localhost:8000/api/v1/stagehand/schemas")
-schemas = response.json()
-
-for schema in schemas['schemas']:
-    print(f"\n{schema['name']}: {schema['description']}")
-    print(f"  Fields: {', '.join(schema['fields'])}")
-```
-
 ---
 
 ## Architecture
@@ -321,7 +291,6 @@ for schema in schemas['schemas']:
 ┌────────────────────▼─────────────────────────────────────┐
 │              Backend API (FastAPI)                        │
 │  • /api/v1/stagehand/action     - Quick actions          │
-│  • /api/v1/stagehand/extract    - Data extraction        │
 │  • /api/v1/stagehand/workflow   - Agent workflows        │
 │  • /api/v1/stagehand/multistep  - Sequential workflows   │
 │  • /health - Health checks                               │
@@ -331,14 +300,14 @@ for schema in schemas['schemas']:
 │           Stagehand Service Layer                         │
 │  • Session-per-request pattern                          │
 │  • Browser automation via Browserbase                    │
-│  • AI-powered element detection (Gemini)                │
+│  • AI-powered element detection (LLMs)                │
 │  • Screenshot capture  • Error handling                  │
 └────────────────────┬─────────────────────────────────────┘
                      │
           ┌──────────┴──────────┐
           │                     │
 ┌─────────▼───────┐  ┌─────────▼──────────┐
-│  Browserbase    │  │   Google Gemini    │
+│  Browserbase    │  │  LLMs              │
 │  Cloud Browsers │  │   AI Models        │
 │  • Chromium     │  │   • Element ID     │
 │  • Session Mgmt │  │   • Instructions   │
@@ -350,7 +319,7 @@ for schema in schemas['schemas']:
 1. **Session-per-Request Pattern**
    - Fresh browser session for each API call
    - No shared state between requests
-   - Cost-optimized (Browserbase charges per session)
+   - Cost-optimized (Browserbase charges per session) or local browser
    - Automatic cleanup after each operation
 
 2. **Stateless Backend**
@@ -360,7 +329,7 @@ for schema in schemas['schemas']:
    - Scales horizontally with ease
 
 3. **AI-Powered Element Detection**
-   - Uses Google Gemini models for natural language understanding
+   - Uses Google Gemini models or any custom LLMs for natural language understanding
    - No CSS selectors needed
    - Self-healing when page structure changes
    - Visual overlay support for debugging
@@ -381,7 +350,7 @@ for schema in schemas['schemas']:
 
 **Infrastructure:**
 - **Browser Service:** Browserbase (cloud browsers)
-- **AI Models:** Google Gemini (gemini-2.5-flash)
+- **AI Models:** Google Gemini (gemini-2.5-flash) or custom LLMs
 - **Deployment:** Docker, Azure Container Apps, AWS Lambda/ECS
 
 ### Data Flow
@@ -419,7 +388,7 @@ Frontend Display
 - `common.py` - Shared schemas (HealthResponse, StandardErrorResponse)
 
 **Frontend:**
-- `main.py` - Streamlit dashboard with 4 tabs (Action, Extract, Workflow, Multi-Step)
+- `main.py` - Streamlit dashboard with 3 tabs (Action, Agent Workflow, Multi-Step)
 - `stagehand_features.py` - UI components for Stagehand features
 - `api_client.py` - HTTP client for backend communication
 - `config.py` - Dynamic backend config import (uses lru_cache)
@@ -497,7 +466,7 @@ Deploy frontend separately to Streamlit Cloud (FREE):
 ### Current Status (v1.0)
 
 **Production Ready:**
-- ✅ Python 3.12 compatible
+- ✅ Python 3.12+ compatible
 - ✅ Full Stagehand integration (observe, act, extract, agent, multi-step)
 - ✅ Comprehensive error handling with standardized codes
 - ✅ Type-safe with Pydantic v2

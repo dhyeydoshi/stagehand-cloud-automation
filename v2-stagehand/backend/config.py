@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
     # Stagehand Settings
     DOM_SETTLE_TIMEOUT_MS: int = Field(default=30000, description="DOM settle timeout in milliseconds")
+    PAGE_NAVIGATION_TIMEOUT_MS: int = Field(default=120000, description="Page navigation timeout in milliseconds")
     SELF_HEAL: bool = Field(default=True, description="Enable self-healing functionality")
     HEADLESS: bool = Field(default=True, description="Run browser in headless mode")
 

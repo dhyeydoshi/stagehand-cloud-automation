@@ -60,16 +60,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     logger.info("Shutting down Stagehand API...")
-    try:
-        await stagehand_service.cleanup()
-        logger.info("✅ Browser resources cleaned up")
-    except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
+    logger.info("✅ Application shutdown complete (session-per-job mode - no cleanup needed)")
 
 
-# Initialize FastAPI app
 app = FastAPI(
     title="Stagehand AI Automation API",
     description="AI-powered browser automation with Stagehand",
@@ -77,7 +71,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -86,7 +79,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health & Status Endpoints
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     return HealthResponse(
@@ -119,7 +111,6 @@ async def readiness_check():
         )
 
 
-# Stagehand AI Automation Endpoints
 @app.post(
     "/api/v1/stagehand/action",
     response_model=ActionResponse,
