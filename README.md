@@ -7,8 +7,6 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.50.0+-red.svg)](https://streamlit.io/)
 [![Stagehand](https://img.shields.io/badge/Stagehand-0.5.5-purple.svg)](https://github.com/browserbase/stagehand-python)
 
-**Status:** ✅ Production Ready | **Architecture:** Session-per-request | **Python:** 3.12+
-
 ---
 
 ## What You Can Do
@@ -276,14 +274,14 @@ for step in result['steps']:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│              Frontend (Streamlit)                         │
+│              Frontend (Streamlit)                        │
 │  • Dashboard UI                                          │
 │  • Quick Actions  • Agent Workflows  • Data Extraction   │
-│  • Multi-Step Builder  • Real-time Results              │
+│  • Multi-Step Builder  • Real-time Results               │
 └────────────────────┬─────────────────────────────────────┘
                      │ HTTP REST API
 ┌────────────────────▼─────────────────────────────────────┐
-│              Backend API (FastAPI)                        │
+│              Backend API (FastAPI)                       │
 │  • /api/v1/stagehand/action     - Quick actions          │
 │  • /api/v1/stagehand/workflow   - Agent workflows        │
 │  • /api/v1/stagehand/multistep  - Sequential workflows   │
@@ -318,12 +316,11 @@ for step in result['steps']:
 
 2. **Stateless Backend**
    - No database required
-   - No job queue management
    - Direct request-response model
    - Scales horizontally with ease
 
 3. **AI-Powered Element Detection**
-   - Uses Google Gemini models or any custom LLMs for natural language understanding
+   - Uses Google Gemini models or any custom multi modals LLMs
    - No CSS selectors needed
    - Self-healing when page structure changes
    - Visual overlay support for debugging
@@ -386,88 +383,6 @@ Frontend Display
 - `stagehand_features.py` - UI components for Stagehand features
 - `api_client.py` - HTTP client for backend communication
 - `config.py` - Dynamic backend config import (uses lru_cache)
-
----
-
-## Deployment Options(Will upload the required files separately)
-
-### Cloud Deployment
-
-This project includes production-ready deployment configurations for multiple cloud platforms:
-
-#### 1. Azure Container Apps (Recommended)
-**Best for:** Production deployments, auto-scaling, cost-effective
-
-**Features:**
-- ✅ Auto-scaling (0-10 replicas)
-- ✅ Built-in HTTPS
-- ✅ Free tier available (180K vCPU-seconds/month)
-- ✅ Pay only when running
-
-**Deployment:**
-```bash
-cd azure
-# Edit deploy-azure.bat with your API keys
-deploy-azure.bat
-```
-
-
-#### 2. AWS Lambda (Serverless - FREE Tier)
-
-**Features:**
-- ✅ FREE tier: 1M requests/month
-- ✅ Zero cost when idle
-- ✅ Automatic scaling
-- ⚠️ 25-second timeout limit
-
-**Deployment:**
-```bash
-cd aws-lambda
-./deploy-lambda.sh
-```
-
-
-#### 3. AWS ECS Fargate
-
-**Features:**
-- ✅ Full container control
-- ✅ VPC networking
-- ✅ Load balancing
-- ⚠️ Higher cost than Lambda
-
-**Deployment:**
-```bash
-cd aws-ecs
-./setup-infrastructure.sh
-./deploy-ecs.sh
-```
-
-### Frontend Deployment (Streamlit Cloud)
-
-Deploy frontend separately to Streamlit Cloud (FREE):
-
-1. Push code to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect repository
-4. Set secrets (API_URL)
-5. Deploy
-
----
-
-
-## Status & Roadmap
-
-### Current Status (v1.0)
-
-**Production Ready:**
-- ✅ Python 3.12+ compatible
-- ✅ Full Stagehand integration (observe, act, extract, agent, multi-step)
-- ✅ Comprehensive error handling with standardized codes
-- ✅ Type-safe with Pydantic v2
-- ✅ Session-per-request architecture (cost-optimized)
-- ✅ Multiple deployment options (Azure, AWS Lambda, AWS ECS)
-- ✅ Frontend/backend separation
-
 
 ---
 

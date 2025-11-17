@@ -367,40 +367,50 @@ class StagehandService:
         stagehand = None
 
         try:
+            config = config or {}
             logger.info("Creating session for multi-step workflow")
             stagehand = await self._create_session(config)
             page = stagehand.page
             steps_results = []
+            stability_interval_ms = max(0, config.get("stability_check_interval_ms", 1000))
+            stability_timeout_ms = max(1000, config.get("stability_timeout_ms", 15000))
+            stability_extra_wait_ms = max(0, config.get("stability_extra_wait_ms", 2000))
+            last_stability_check = 0.0
+
+            async def wait_for_page_stability(
+                reason: str = "",
+                force: bool = False,
+                require_full_load: bool = False
+            ):
+                nonlocal last_stability_check
+                now = time.time()
+                if not force and (now - last_stability_check) < (stability_interval_ms / 1000):
+                    return
+
+                reason_label = f" before {reason}" if reason else ""
+                logger.info(f"Waiting for page stability{reason_label}")
+
+                load_states = ["domcontentloaded"]
+                if require_full_load:
+                    load_states.append("load")
+                load_states.append("networkidle")
+
+                for state in load_states:
+                    try:
+                        await page.wait_for_load_state(state, timeout=stability_timeout_ms)
+                        logger.debug(f"✓ {state} state reached{reason_label}")
+                    except Exception as state_error:
+                        logger.debug(f"{state} state wait skipped{reason_label}: {state_error}")
+
+                if stability_extra_wait_ms:
+                    await asyncio.sleep(stability_extra_wait_ms / 1000)
+
+                last_stability_check = time.time()
 
             await self._navigate_with_retry(page, url)
             logger.info(f"Navigated to {url}")
-
-            # Wait for page to be fully stable - comprehensive loading strategy
-            logger.info("Waiting for page to fully load (content, scripts, CSS)...")
-
-            try:
-                await page.wait_for_load_state("domcontentloaded", timeout=60000)
-                logger.info("✓ DOM content loaded")
-            except Exception as e:
-                logger.warning(f"DOM content loaded timeout: {e}")
-
-            try:
-                await page.wait_for_load_state("load", timeout=20000)
-                logger.info("✓ All resources loaded")
-            except Exception as e:
-                logger.warning(f"Load state timeout: {e}")
-
-            # Step 3: Wait for network to be idle (no ongoing requests)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-                logger.info("✓ Network idle (no active requests)")
-            except Exception as e:
-                logger.warning(f"Network idle timeout: {e}, continuing anyway")
-
-            logger.info("Waiting additional 5 seconds for JavaScript and dynamic content...")
-            await asyncio.sleep(5)
-
-            logger.info("✓ Page fully loaded and stable")
+            await wait_for_page_stability("initial navigation", force=True, require_full_load=True)
+            logger.info("✓ Page stable and ready for instructions")
 
             for idx, instruction in enumerate(instructions, 1):
                 step_start = time.time()
@@ -431,110 +441,133 @@ class StagehandService:
                 try:
                     if step_type == "goto":
                         await page.goto(instruction_text)
+                        await wait_for_page_stability(f"goto step {idx}", force=True, require_full_load=True)
                         step_result["success"] = True
 
                     elif step_type == "observe":
-                        try:
-                            logger.info(f"Calling page.observe with instruction: '{instruction_text}'")
-
-                            # Wait for page to be stable before observing - comprehensive check
-                            logger.info("Ensuring page stability before observe operation...")
+                        nav_retry_attempted = False
+                        while True:
                             try:
-                                await page.wait_for_load_state("domcontentloaded", timeout=8000)
-                                logger.info("✓ DOM ready for observe")
-                            except Exception as wait_error:
-                                logger.warning(f"DOM wait failed: {wait_error}")
-
-                            try:
-                                await page.wait_for_load_state("networkidle", timeout=8000)
-                                logger.info("✓ Network idle for observe")
-                            except Exception as wait_error:
-                                logger.warning(f"Network idle wait failed: {wait_error}")
-
-                            # Additional wait for dynamic content and JavaScript
-                            await asyncio.sleep(2)
-                            logger.info("✓ Page stable, proceeding with observe")
-
-                            results = await page.observe(
-                                instruction=instruction_text,
-                                draw_overlay=config.get("draw_overlay", False)
-                            )
-                            step_result["success"] = True
-                            step_result["data"] = {
-                                "observed_elements": len(results),
-                                "elements_found": len(results) > 0
-                            }
-                            logger.info(f"Observe found {len(results)} elements")
-                        except Exception as observe_error:
-                            logger.error(f"Observe error: {observe_error}")
-                            step_result["success"] = False
-                            error_msg = str(observe_error)
-
-                            if "Execution context was destroyed" in error_msg or "navigation" in error_msg.lower():
-                                step_result["error"] = (
-                                    f"Page navigation occurred during observe: {error_msg}. "
-                                    "This usually happens when:\n"
-                                    "1. The page automatically redirected\n"
-                                    "2. A popup or modal appeared\n"
-                                    "3. The page is still loading\n"
-                                    "Try: Add a 'wait' step before observe, or increase wait_after time"
+                                await wait_for_page_stability(
+                                    f"observe step {idx}",
+                                    force=nav_retry_attempted,
+                                    require_full_load=True
                                 )
-                                step_result["error_code"] = "NAVIGATION_ERROR"
-                            elif "Server returned error" in error_msg:
-                                step_result["error"] = (
-                                    f"Stagehand AI model error: {error_msg}. "
-                                    "Possible causes:\n"
-                                    "1. Missing or invalid MODEL_API_KEY in .env\n"
-                                    "2. MODEL_NAME not supported or incorrectly configured\n"
-                                    "3. Page content too complex for the instruction\n"
-                                    "4. Network issues with AI provider\n"
-                                    f"Current config: MODEL_NAME={settings.MODEL_NAME}, "
-                                    f"API_KEY={'set' if settings.MODEL_API_KEY else 'NOT SET'}"
+                                logger.info(f"Calling page.observe with instruction: '{instruction_text}'")
+
+                                results = await page.observe(
+                                    instruction=instruction_text,
+                                    draw_overlay=config.get("draw_overlay", False)
                                 )
-                                step_result["error_code"] = "AI_MODEL_ERROR"
-                            else:
-                                step_result["error"] = f"Observe failed: {error_msg}"
-                                step_result["error_code"] = "OBSERVE_ERROR"
+                                step_result["success"] = True
+                                step_result["data"] = {
+                                    "observed_elements": len(results),
+                                    "elements_found": len(results) > 0
+                                }
+                                logger.info(f"Observe found {len(results)} elements")
+                                break
+                            except Exception as observe_error:
+                                logger.error(f"Observe error: {observe_error}")
+                                error_msg = str(observe_error)
+                                nav_issue = (
+                                    "Execution context was destroyed" in error_msg
+                                    or "navigation" in error_msg.lower()
+                                )
+                                if nav_issue and not nav_retry_attempted:
+                                    nav_retry_attempted = True
+                                    logger.warning(
+                                        "Navigation detected during observe; waiting for page to settle and retrying once"
+                                    )
+                                    await wait_for_page_stability(
+                                        f"observe retry step {idx}",
+                                        force=True,
+                                        require_full_load=True
+                                    )
+                                    continue
+
+                                step_result["success"] = False
+
+                                if nav_issue:
+                                    step_result["error"] = (
+                                        f"Page navigation occurred during observe: {error_msg}. "
+                                        "This usually happens when:\n"
+                                        "1. The page automatically redirected\n"
+                                        "2. A popup or modal appeared\n"
+                                        "3. The page is still loading\n"
+                                        "Try: Add a 'wait' step before observe, or increase wait_after time"
+                                    )
+                                    step_result["error_code"] = "NAVIGATION_ERROR"
+                                elif "Server returned error" in error_msg:
+                                    step_result["error"] = (
+                                        f"Stagehand AI model error: {error_msg}. "
+                                        "Possible causes:\n"
+                                        "1. Missing or invalid MODEL_API_KEY in .env\n"
+                                        "2. MODEL_NAME not supported or incorrectly configured\n"
+                                        "3. Page content too complex for the instruction\n"
+                                        "4. Network issues with AI provider\n"
+                                        f"Current config: MODEL_NAME={settings.MODEL_NAME}, "
+                                        f"API_KEY={'set' if settings.MODEL_API_KEY else 'NOT SET'}"
+                                    )
+                                    step_result["error_code"] = "AI_MODEL_ERROR"
+                                else:
+                                    step_result["error"] = f"Observe failed: {error_msg}"
+                                    step_result["error_code"] = "OBSERVE_ERROR"
+                                break
 
                     elif step_type == "act":
-                        try:
-                            # Wait for page stability before acting - comprehensive check
-                            logger.info("Ensuring page stability before act operation...")
+                        nav_retry_attempted = False
+                        while True:
                             try:
-                                await page.wait_for_load_state("domcontentloaded", timeout=8000)
-                                logger.info("✓ DOM ready for act")
-                            except Exception as wait_error:
-                                logger.warning(f"DOM wait failed: {wait_error}")
+                                await wait_for_page_stability(
+                                    f"act step {idx}",
+                                    force=nav_retry_attempted,
+                                    require_full_load=True
+                                )
+                                logger.info("Proceeding with observe/act sequence")
 
-                            try:
-                                await page.wait_for_load_state("networkidle", timeout=8000)
-                                logger.info("✓ Network idle for act")
-                            except Exception as wait_error:
-                                logger.warning(f"Network idle wait failed: {wait_error}")
+                                results = await page.observe(instruction=instruction_text)
+                                if results:
+                                    await page.act(results[0])
+                                    step_result["success"] = True
+                                    step_result["data"] = {"action_performed": True}
+                                    await wait_for_page_stability(
+                                        f"post-act step {idx}",
+                                        force=True,
+                                        require_full_load=True
+                                    )
+                                else:
+                                    step_result["error"] = "No elements found to act upon"
+                                    step_result["error_code"] = "NO_ELEMENTS_FOUND"
+                                break
+                            except Exception as act_error:
+                                error_msg = str(act_error)
+                                nav_issue = (
+                                    "Execution context was destroyed" in error_msg
+                                    or "navigation" in error_msg.lower()
+                                )
+                                if nav_issue and not nav_retry_attempted:
+                                    nav_retry_attempted = True
+                                    logger.warning(
+                                        "Navigation detected during act; waiting for page to settle and retrying once"
+                                    )
+                                    await wait_for_page_stability(
+                                        f"act retry step {idx}",
+                                        force=True,
+                                        require_full_load=True
+                                    )
+                                    continue
 
-                            # Additional wait for dynamic content
-                            await asyncio.sleep(2)
-                            logger.info("✓ Page stable, proceeding with act")
-
-                            results = await page.observe(instruction=instruction_text)
-                            if results:
-                                await page.act(results[0])
-                                step_result["success"] = True
-                                step_result["data"] = {"action_performed": True}
-                            else:
-                                step_result["error"] = "No elements found to act upon"
-                                step_result["error_code"] = "NO_ELEMENTS_FOUND"
-                        except Exception as act_error:
-                            error_msg = str(act_error)
-                            if "Execution context was destroyed" in error_msg or "navigation" in error_msg.lower():
-                                step_result["error"] = f"Page navigation occurred during action: {error_msg}"
-                                step_result["error_code"] = "NAVIGATION_ERROR"
-                            else:
-                                step_result["error"] = f"Action failed: {error_msg}"
-                                step_result["error_code"] = "ACTION_ERROR"
+                                if nav_issue:
+                                    step_result["error"] = f"Page navigation occurred during action: {error_msg}"
+                                    step_result["error_code"] = "NAVIGATION_ERROR"
+                                else:
+                                    step_result["error"] = f"Action failed: {error_msg}"
+                                    step_result["error_code"] = "ACTION_ERROR"
+                                break
 
                     elif step_type == "extract":
                         try:
+                            await wait_for_page_stability(f"extract step {idx}", require_full_load=True)
                             logger.info(f"Calling page.extract with instruction: '{instruction_text}'")
                             extracted_data = await page.extract(instruction_text)
 
@@ -594,6 +627,8 @@ class StagehandService:
                         except Exception as e:
                             logger.warning(f"Screenshot failed for step {idx}: {e}")
 
+                    await wait_for_page_stability(f"post step {idx}", force=True)
+
                     if wait_after > 0:
                         await asyncio.sleep(wait_after / 1000)
 
@@ -614,6 +649,7 @@ class StagehandService:
                     step_result["execution_time"] = time.time() - step_start
                     steps_results.append(step_result)
 
+            await wait_for_page_stability("workflow completion", force=True, require_full_load=True)
             all_success = all(step["success"] for step in steps_results)
 
             import uuid
@@ -655,5 +691,10 @@ class StagehandService:
 
         finally:
             if stagehand:
+                try:
+                    if 'wait_for_page_stability' in locals():
+                        await wait_for_page_stability("shutdown cleanup", force=True, require_full_load=True)
+                except Exception as final_wait_error:
+                    logger.debug(f"Final stability check skipped: {final_wait_error}")
                 logger.info("Closing session after workflow")
                 await self._close_session(stagehand)

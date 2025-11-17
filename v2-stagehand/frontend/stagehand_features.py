@@ -212,19 +212,17 @@ class StagehandFeaturesUI:
         - Step 2: "Select Electronics category"
         - NOT: "Open filters and select Electronics" (too complex for one step)
         
-        **Important for Complex Sites (e-commerce, banking, etc.):**
-        - Add a "wait" step (3000-5000ms) as your FIRST step
-        - This ensures all content, scripts, and CSS are fully loaded
-        - Use higher wait_after values (2000-3000ms) between steps
-        - If you still get navigation errors, increase wait times further
         """)
 
         if 'multistep_instructions' not in st.session_state:
             st.session_state.multistep_instructions = []
 
-        # Form counter to force form reset
-        if 'form_counter' not in st.session_state:
-            st.session_state.form_counter = 0
+        if 'bulk_step_buffer' not in st.session_state:
+            st.session_state.bulk_step_buffer = [{
+                "instruction_type": "observe",
+                "instruction_text": "",
+                "wait_after": 2000
+            }]
 
         # Clear results button
         if st.session_state.get('last_result_type') == "Multi-Step" and 'last_result' in st.session_state:
@@ -244,54 +242,84 @@ class StagehandFeaturesUI:
                 st.session_state.multistep_instructions = []
                 st.rerun()
 
-        with st.expander("Add New Step", expanded=True):
-            form_key = f"add_step_form_{st.session_state.form_counter}"
-            with st.form(form_key, clear_on_submit=True):
-                col1, col2 = st.columns([1, 2])
+        with st.expander("Add Steps", expanded=True):
+            st.caption("Add multiple steps at once. Leave instruction blank to skip a row.")
+            column_config = {
+                "instruction_type": st.column_config.SelectboxColumn(
+                    "Step Type",
+                    options=["observe", "act", "extract", "wait", "screenshot"],
+                    default="observe",
+                    required=True
+                ),
+                "instruction_text": st.column_config.TextColumn(
+                    "Instruction",
+                    help="Provide a natural-language instruction for the selected step type",
+                    required=True
+                ),
+                "wait_after": st.column_config.NumberColumn(
+                    "Wait after (ms)",
+                    min_value=0,
+                    max_value=10000,
+                    step=500,
+                    default=2000
+                )
+            }
 
-                with col1:
-                    step_type = st.selectbox(
-                        "Step Type",
-                        options=["observe", "act", "extract", "wait", "screenshot"],
-                        format_func=lambda x: {
-                            "observe": "Observe",
-                            "act": "Act",
-                            "extract": "Extract",
-                            "wait": "Wait",
-                            "screenshot": "Screenshot"
-                        }[x],
-                        help="Navigate (goto) is not needed - the workflow automatically starts at the Target URL above"
-                    )
+            bulk_data = st.data_editor(
+                st.session_state.bulk_step_buffer,
+                num_rows="dynamic",
+                use_container_width=True,
+                column_config=column_config,
+                key="bulk_step_editor"
+            )
+            st.session_state.bulk_step_buffer = bulk_data
 
-                with col2:
-                    instruction = st.text_input(
-                        "Instruction",
-                        placeholder=self._get_step_placeholder(step_type),
-                        help=self._get_step_help(step_type)
-                    )
+            action_col, reset_col = st.columns(2)
+            with action_col:
+                add_steps = st.button("Add Listed Steps", type="primary", use_container_width=True)
+            with reset_col:
+                reset_buffer = st.button("Reset List", use_container_width=True)
 
-                col_wait, col_button = st.columns([2, 1])
+            if reset_buffer:
+                st.session_state.bulk_step_buffer = [{
+                    "instruction_type": "observe",
+                    "instruction_text": "",
+                    "wait_after": 2000
+                }]
+                st.rerun()
 
-                with col_wait:
-                    wait_after = st.slider("Wait after (ms)", 0, 10000, 2000, 500)
-
-                with col_button:
-                    st.write("")  # Spacing
-                    submitted = st.form_submit_button("Add Step", use_container_width=True, type="primary")
-
-                if submitted and instruction:
-                    step_number = len(st.session_state.multistep_instructions) + 1
-                    st.session_state.multistep_instructions.append({
-                        "step_number": step_number,
-                        "instruction_type": step_type,
-                        "instruction_text": instruction,
-                        "wait_after": wait_after
+            if add_steps:
+                valid_rows = []
+                for row in bulk_data:
+                    if not row:
+                        continue
+                    instruction_text = (row.get("instruction_text") or "").strip()
+                    if not instruction_text:
+                        continue
+                    valid_rows.append({
+                        "instruction_type": row.get("instruction_type") or "observe",
+                        "instruction_text": instruction_text,
+                        "wait_after": int(row.get("wait_after") or 2000)
                     })
-                    st.session_state.form_counter += 1  # Increment to force new form
-                    st.success(f"Step {step_number} added successfully!")
+
+                if not valid_rows:
+                    st.warning("No valid steps to add. Provide at least one instruction.")
+                else:
+                    start_index = len(st.session_state.multistep_instructions)
+                    for idx, row in enumerate(valid_rows, start=1):
+                        st.session_state.multistep_instructions.append({
+                            "step_number": start_index + idx,
+                            "instruction_type": row["instruction_type"],
+                            "instruction_text": row["instruction_text"],
+                            "wait_after": row["wait_after"]
+                        })
+                    st.session_state.bulk_step_buffer = [{
+                        "instruction_type": "observe",
+                        "instruction_text": "",
+                        "wait_after": 2000
+                    }]
+                    st.success(f"Added {len(valid_rows)} step(s)!")
                     st.rerun()
-                elif submitted and not instruction:
-                    st.error("Please enter an instruction")
 
         if st.session_state.multistep_instructions:
             st.divider()

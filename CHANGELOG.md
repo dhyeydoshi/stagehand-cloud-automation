@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **Multi-Step Stability Checks**: Backend now performs adaptive load-state checks with configurable intervals (`stability_check_interval_ms`, `stability_timeout_ms`, `stability_extra_wait_ms`) instead of fixed sleep calls, cutting idle time while keeping Stagehand runs stable.
+- **Frontend Health Polling**: Streamlit sidebar caches `/health` responses for 30 seconds and adds a manual refresh button, reducing redundant requests during reruns.
+- **Multi-Step UX**: The single-step form (and its auto-resetting wait slider) has been removed; the streamlined bulk-add table now handles all workflow creation with persistent wait values, add/reset buttons, and easy multi-row editing.
+- **Workflow Load Guardrails**: Multi-step backend waits for `domcontentloaded`, `load`, and `networkidle` states before and after navigations/critical actions so pages fully load scripts/CSS before Stagehand sessions close.
+- **Observe/Act Auto-Retry**: Navigation-induced "Execution context was destroyed" errors now trigger an automatic stability wait and one retry before surfacing a failure, reducing spurious errors on redirect-heavy pages.
+- **Automated Tests**: Added pytest suites for FastAPI routes, Stagehand service logic, and Streamlit UI smoke flows; run with `pytest` after installing backend/frontend requirements.
+- **Deployment Scripts**: Azure (`v2-stagehand/azure/deploy-azure.sh`) and AWS ECS (`v2-stagehand/aws-ecs/deploy-ecs.sh`) deployments now read from `.env` files, build images from the backend directory, and run end-to-end without interactive prompts or missing Dockerfiles.
+
+---
+
 ## [1.0.1]
 
 ### Changed
@@ -71,13 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified to focus on three core workflows: Quick Action, Agent Workflow, and Multi-Step
   - Extraction still available through Quick Action and Multi-Step workflows
   - Files modified:
-    - `v2-stagehand/frontend/api_client.py` (5 lines removed)
-    - `v2-stagehand/frontend/frontend_config.py` (2 lines removed)
-    - `v2-stagehand/frontend/main.py` (38 lines changed, net -22)
-    - `v2-stagehand/frontend/stagehand_features.py` (46 lines changed, net -30)
+    - `v2-stagehand/frontend/api_client.py`
+    - `v2-stagehand/frontend/frontend_config.py`
+    - `v2-stagehand/frontend/main.py`
+    - `v2-stagehand/frontend/stagehand_features.py`
 
 ### Fixed
-- **Bug Fixes**: Various bug fixes and improvements (see commit 8ea9cd4)
+- **Bug Fixes**: Various bug fixes and improvements
 - **README Updates**: Updated documentation to reflect new features and functionality
 
 ---
@@ -98,8 +111,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for both LOCAL and BROWSERBASE environments
 - Screenshot capture with overlay visualization
 - Structured data extraction with Pydantic schemas
-- AWS deployment options (ECS and Lambda)
-- Azure deployment support
 
 ### Technical Stack
 - **Backend**: FastAPI with async/await patterns
@@ -149,23 +160,5 @@ If you were using the "Extract Data" tab (removed in v1.0.0):
 
 - Scroll action parsing errors may occur with certain AI models (validation error for ScrollAction)
 - Large page content may cause timeouts with some AI providers
-- Headless mode may still briefly show browser window in some configurations
-
----
-
-## Upgrade Guide
-
-### From v0.x to v1.0.0
-
-1. If using Extract Data tab, migrate to Quick Action or Multi-Step workflows
-2. Update any scripts that relied on separate extraction endpoint
-3. Review and update schema usage to match new patterns
-
-### From v1.0.0 to Current
-
-1. No action needed - changes are backward compatible
-2. Update UI usage patterns to leverage automatic navigation in Multi-Step workflows
-3. Remove any manual "goto" steps that navigate to the initial URL (now automatic)
-
 ---
 
