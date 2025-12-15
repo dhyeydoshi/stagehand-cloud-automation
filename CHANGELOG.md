@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Separate LLM and CUA Model Configuration**: Implemented distinct model configurations for different workflow types
+  - Normal LLM models (MODEL_NAME, MODEL_API_KEY, MODEL_BASE_URL) used for single-step and multi-step workflows
+  - CUA models (AGENT_MODEL_NAME, AGENT_MODEL_API_KEY, AGENT_MODEL_BASE_URL) used specifically for agent workflows
+  - Optional separate API keys and base URLs for CUA models with automatic fallback to normal LLM settings
+  - Clear separation of concerns between traditional browser automation and autonomous agent workflows
+- **Model Information Display**: Frontend now shows which model is being used for each workflow
+  - Single-step actions display the LLM model used
+  - Multi-step workflows show the LLM model used
+  - Agent workflows prominently display the CUA model used
+  - Model information shown in metrics section and even on error
+- **Agent Message Display**: Agent workflow results now show extracted information prominently
+  - Message field displays task completion status and memorized facts
+  - Memorized facts formatted as bullet points in the message
+  - Clear "Agent Response" section in the frontend
+  - Facts extracted by the agent are no longer hidden in raw JSON
 - **Microsoft CUA Agent Integration**: Added support for Microsoft Computer Use Agent (Fara-7B model)
   - New extension system in `backend/extensions/microsoft_cua/`
   - Factory pattern for agent client creation
@@ -24,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fact formatting standards 
   - Better termination messages with extracted data summaries
 ### Changed
+- **Model Configuration Architecture**: Refactored backend to use separate model configurations based on workflow type
+  - `_create_session()` now accepts `workflow_type` parameter ("normal" or "agent")
+  - Single-step and multi-step workflows automatically use normal LLM configuration
+  - Agent workflows automatically use CUA model configuration with fallback to LLM settings
+  - Improved logging shows which model type is being used for each session
+- **API Response Schemas**: Enhanced response models to include execution metadata
+  - `ActionResponse` now includes `model_used` and `execution_method` fields
+  - `WorkflowResponse` now includes `message`, `memorized_facts`, `agent_model`, and `execution_method` fields
+  - `MultiStepJobResponse` now includes `model_used` and `execution_method` fields
+  - All responses provide clear visibility into which AI model processed the request
+- **Frontend Result Display**: Completely redesigned result presentation
+  - Agent responses show message prominently in an info box
+  - Model information displayed in dedicated metrics
+  - Cleaner layout with 3-5 column metrics grid
+  - Better error messages with model context
 - **Multi-Step Stability Checks**: Backend now performs adaptive load-state checks with configurable intervals (`stability_check_interval_ms`, `stability_timeout_ms`, `stability_extra_wait_ms`) instead of fixed sleep calls, cutting idle time while keeping Stagehand runs stable.
 - **Frontend Health Polling**: Streamlit sidebar caches `/health` responses for 30 seconds and adds a manual refresh button, reducing redundant requests during reruns.
 - **Multi-Step UX**: The single-step form (and its auto-resetting wait slider) has been removed; the streamlined bulk-add table now handles all workflow creation with persistent wait values, add/reset buttons, and easy multi-row editing.

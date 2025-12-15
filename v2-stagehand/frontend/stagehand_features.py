@@ -80,7 +80,7 @@ class StagehandFeaturesUI:
         **Best for:** Complex multi-step tasks
         - "Navigate to products and filter by Electronics"
         - "Search for AI automation and click first result"
-        - "Apply to first job posting with mock data"
+        - "Play a game of chess"
         """)
 
         if st.session_state.get('last_result_type') == "Workflow" and 'last_result' in st.session_state:
@@ -292,13 +292,25 @@ class StagehandFeaturesUI:
         if result.get('success'):
             st.success(f"{result_type} completed successfully!")
 
-            col1, col2 = st.columns(2)
+            # Display message if available (for agent workflows)
+            if result.get('message'):
+                st.info(f"**Agent Response:**\n\n{result['message']}")
+
+            # Display model information
+            col1, col2, col3 = st.columns(3)
             with col1:
                 if 'processing_time' in result:
                     st.metric("Processing Time", f"{result['processing_time']:.2f}s")
             with col2:
                 if 'observed_elements' in result:
                     st.metric("Observed Elements", result['observed_elements'])
+                elif result.get('agent_model'):
+                    st.metric("CUA Model", result['agent_model'])
+                elif result.get('model_used'):
+                    st.metric("LLM Model", result['model_used'])
+            with col3:
+                if result.get('execution_method'):
+                    st.metric("Method", result['execution_method'])
 
             if result.get('data'):
                 st.write("**Extracted Data:**")
@@ -343,6 +355,12 @@ class StagehandFeaturesUI:
         else:
             st.error(f"{result_type} failed: {result.get('error', 'Unknown error')}")
 
+            # Show model info even on failure
+            if result.get('agent_model'):
+                st.caption(f"CUA Model used: {result['agent_model']}")
+            elif result.get('model_used'):
+                st.caption(f"LLM Model used: {result['model_used']}")
+
     def _display_multistep_result(self, result: Dict):
         st.divider()
         st.subheader("Multi-Step Workflow Results")
@@ -352,7 +370,7 @@ class StagehandFeaturesUI:
         else:
             st.error("Workflow failed")
 
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("Total Steps", result.get("total_steps", 0))
         with col2:
@@ -364,6 +382,11 @@ class StagehandFeaturesUI:
             st.metric("Success Rate", f"{success_rate:.0f}%")
         with col4:
             st.metric("Execution Time", f"{result.get('total_execution_time', 0):.2f}s")
+        with col5:
+            if result.get('model_used'):
+                st.metric("LLM Model", result['model_used'])
+            elif result.get('execution_method'):
+                st.metric("Method", result['execution_method'])
 
         st.subheader("Step-by-Step Results")
 

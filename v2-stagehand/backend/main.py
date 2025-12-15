@@ -151,11 +151,14 @@ async def execute_workflow(request: WorkflowRequest):
         return WorkflowResponse(
             success=result["success"],
             workflow=request.workflow_instruction,
+            message=result.get("message"),
+            memorized_facts=result.get("memorized_facts", []),
             result=result,
             url=request.url,
             timestamp=datetime.now(timezone.utc).isoformat(),
             processing_time=result.get("processing_time", 0.0),
-            execution_method=f"agent:{result['agent_model']}",
+            execution_method=result.get("execution_method", "agent"),
+            agent_model=result.get("agent_model"),
         )
 
     except Exception as e:

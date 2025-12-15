@@ -48,12 +48,16 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
 
-    # AI Model Configuration
-    MODEL_API_KEY: Optional[str] = Field(default=None, description="Model API key")
-    MODEL_NAME: str = Field(default="", description="LLM model name")
-    MODEL_BASE_URL: str = Field(default="", description="Model base URL")
+    # AI Model Configuration - Normal LLM (for single-step and multi-step)
+    MODEL_API_KEY: Optional[str] = Field(default=None, description="Model API key for normal LLM operations")
+    MODEL_NAME: str = Field(default="", description="LLM model name for single-step and multi-step workflows")
+    MODEL_BASE_URL: str = Field(default="", description="Model base URL for normal LLM")
+
+    # AI Model Configuration - CUA (for agent workflows)
     ENABLE_MICROSOFT_CUA: bool = Field(default=False, description="Enable Microsoft FARA CUA")
-    AGENT_MODEL_NAME: str = Field(default="microsoft/Fara-7B", description="Agent model name")
+    AGENT_MODEL_NAME: str = Field(default="microsoft/Fara-7B", description="CUA model name for agent workflows")
+    AGENT_MODEL_API_KEY: Optional[str] = Field(default=None, description="API key for CUA model (defaults to MODEL_API_KEY if not set)")
+    AGENT_MODEL_BASE_URL: str = Field(default="", description="Base URL for CUA model (defaults to MODEL_BASE_URL if not set)")
 
 
     model_config = SettingsConfigDict(

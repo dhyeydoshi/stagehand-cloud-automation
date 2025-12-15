@@ -136,6 +136,10 @@ def render_sidebar():
             BROWSERBASE_PROJECT_ID=your_project (if using BROWSERBASE)
             MODEL_API_KEY=your_model_key
             MODEL_NAME=your_model_name
+            ENABLE_MICROSOFT_CUA=True(if using Microsoft CUA)
+            AGENT_MODEL_NAME=microsoft/Fara-7B           
+            AGENT_MODEL_API_KEY=your_agent_model_key
+            AGENT_MODEL_BASE_URL=your_agent_model_base_url
             ```
             
             Set these in `backend/.env` file.
@@ -158,7 +162,7 @@ def render_sidebar():
             - Step 3: "Click apply"
             
             **Use Agent for complex tasks:**
-            - "Navigate to jobs and apply to first engineer position"
+            - "Play a game of chess with a bot on chess.com"
             """)
 
 
@@ -192,7 +196,7 @@ def render_home():
         - Smart decision making
         - Up to 100 steps
         
-        **Example:** "Apply to first job with mock data"
+        **Example:** "Play a game of chess with a bot on chess.com"
         """)
 
     with col2:

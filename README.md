@@ -52,8 +52,16 @@
    - Browserbase: https://www.browserbase.com/ (API key + Project ID)
    - Google AI Studio: https://aistudio.google.com/apikey (API key)
 
+3. **Understanding Model Architecture**
+   - **Normal LLM**: Used for single-step actions and multi-step workflows
+     - Best for: Precise browser actions, data extraction with schemas
+     - Example models: Google Gemini Flash, GPT-4, Claude
+   - **CUA (Computer Use Agent)**: Used for autonomous agent workflows
+     - Best for: Complex multi-step tasks, autonomous navigation
+     - Example models: Microsoft Fara-7B, Gemini Computer Use Preview
+   - Both can be configured separately or use the same model
 
-3. **Optional**
+4. **Optional**
    - Docker (for containerized deployment)
    - Azure/AWS account (for cloud deployment)
 
@@ -90,14 +98,17 @@ STAGEHAND_ENV=LOCAL
 BROWSERBASE_API_KEY=
 BROWSERBASE_PROJECT_ID=
 
-# Optional - Microsoft CUA Agent (for advanced agent workflows)
-AZURE_API_KEY=your_azure_openai_api_key
-AZURE_ENDPOINT=your_azure_openai_endpoint
-
-
-# Required - AI Model
+# Required - Normal LLM (for single-step and multi-step workflows)
 MODEL_API_KEY=your_google_ai_api_key
 MODEL_NAME=gemini-2.5-flash
+MODEL_BASE_URL=
+
+# Optional - CUA Model (for agent workflows)
+# If not set, agent workflows will use the normal LLM configuration above
+AGENT_MODEL_NAME=microsoft/Fara-7B
+AGENT_MODEL_API_KEY=your_azure_openai_api_key  # Falls back to MODEL_API_KEY if not set
+AGENT_MODEL_BASE_URL=your_azure_openai_endpoint  # Falls back to MODEL_BASE_URL if not set
+ENABLE_MICROSOFT_CUA=True  # Set to True to enable Microsoft CUA
 ```
 
 **Option B: BROWSERBASE Mode** (Cloud browser, production-ready)
@@ -109,14 +120,17 @@ STAGEHAND_ENV=BROWSERBASE
 BROWSERBASE_API_KEY=your_browserbase_api_key
 BROWSERBASE_PROJECT_ID=your_browserbase_project_id
 
-# Required - AI Model
+# Required - Normal LLM (for single-step and multi-step workflows)
 MODEL_API_KEY=your_google_ai_api_key
 MODEL_NAME=gemini-2.5-flash
 MODEL_BASE_URL=
 
-# Optional - Microsoft CUA Agent (for advanced agent workflows)
-AZURE_API_KEY=your_azure_openai_api_key
-AZURE_ENDPOINT=your_azure_openai_endpoint
+# Optional - CUA Model (for agent workflows)
+# If not set, agent workflows will use the normal LLM configuration above
+AGENT_MODEL_NAME=microsoft/Fara-7B
+AGENT_MODEL_API_KEY=your_azure_openai_api_key  # Falls back to MODEL_API_KEY if not set
+AGENT_MODEL_BASE_URL=your_azure_openai_endpoint  # Falls back to MODEL_BASE_URL if not set
+ENABLE_MICROSOFT_CUA=True  # Set to True to enable Microsoft CUA
 
 # Application Settings
 ENVIRONMENT=development
@@ -161,6 +175,57 @@ streamlit run main.py
 - **Backend API**: http://127.0.0.1:8000
 - **API Documentation**: http://127.0.0.1:8000/docs
 - **Health Check**: http://127.0.0.1:8000/health
+
+
+---
+
+## Configuration Examples
+
+### Example 1: Same Model for All Workflows
+Use Google Gemini for both normal operations and agent workflows:
+
+```env
+# Normal LLM (single-step and multi-step)
+MODEL_API_KEY=your_google_api_key
+MODEL_NAME=google/gemini-2.5-flash
+MODEL_BASE_URL=
+
+ENABLE_MICROSOFT_CUA=False
+AGENT_MODEL_NAME=google/gemini-2.5-computer-use-preview-10-2025
+AGENT_MODEL_API_KEY=your_google_api_key
+AGENT_MODEL_BASE_URL=
+```
+
+### Example 2: Separate Models (Recommended)
+Use Gemini Flash for normal operations and Microsoft Fara for agent workflows:
+
+```env
+# Normal LLM (single-step and multi-step)
+MODEL_API_KEY=your_google_api_key
+MODEL_NAME=google/gemini-2.5-flash
+MODEL_BASE_URL=
+
+# CUA Model (agent workflows only)
+ENABLE_MICROSOFT_CUA=True
+AGENT_MODEL_NAME=microsoft/Fara-7B
+AGENT_MODEL_API_KEY=your_azure_api_key
+AGENT_MODEL_BASE_URL=https://your-endpoint.openai.azure.com/
+```
+
+### Example 3: OpenRouter Configuration
+Use OpenRouter for multiple models:
+
+```env
+# Normal LLM via OpenRouter
+MODEL_API_KEY=your_openrouter_api_key
+MODEL_NAME=anthropic/claude-3.5-sonnet
+MODEL_BASE_URL=https://openrouter.ai/api/v1
+
+# Agent workflows via OpenRouter
+AGENT_MODEL_NAME=google/gemini-2.5-computer-use-preview-10-2025
+AGENT_MODEL_API_KEY=your_openrouter_api_key  # Can be same as MODEL_API_KEY
+AGENT_MODEL_BASE_URL=https://openrouter.ai/api/v1
+```
 
 ---
 ## Note:
@@ -302,24 +367,26 @@ for step in result['steps']:
 
 ## Agent Models & Data Extraction
 
-### Available Agent Models
+### Model Architecture
 
-The platform supports multiple AI agent models for autonomous workflows:
+The platform uses **two separate model configurations** optimized for different workflow types:
 
-#### 1. **Google Gemini (Default)**
-- Model: `gemini-2.5-computer-use-preview-10-2025`
-- Best for: General-purpose automation, fast responses
-- Configuration: Set `MODEL_API_KEY` in `.env`
+#### Normal LLM Models (Single-Step & Multi-Step)
+- **Purpose**: Precise browser actions, data extraction with schemas
+- **Configuration**: `MODEL_NAME`, `MODEL_API_KEY`, `MODEL_BASE_URL`
+- **Recommended Models**:
+  - `google/gemini-2.5-flash`
+  - `google/gemini-2.5-pro`
+  - `openai/gpt-4o`
+  - `anthropic/claude-3.5-sonnet`
 
-#### 2. **Microsoft Computer Use Agent (Fara-7B)**
-- Model: `microsoft/Fara-7B`
-- Best for: Data extraction, structured information gathering
-- Features:
-  - Built-in fact memorization with `pause_and_memorize_fact`
-  - Automatic data extraction formatting
-  - Optimized viewport resizing
-  - Screenshot compression for token efficiency
-- Configuration: Set `AZURE_API_KEY` and `AZURE_ENDPOINT` in `.env`
+#### CUA Models (Agent Workflows)
+- **Purpose**: Autonomous multi-step navigation, complex task execution
+- **Configuration**: `AGENT_MODEL_NAME`, `AGENT_MODEL_API_KEY`, `AGENT_MODEL_BASE_URL`
+- **Recommended Models**:
+  - `microsoft/Fara-7B`
+  - `google/gemini-2.5-computer-use-preview-10-2025`
+  - `anthropic/claude-sonnet-4-20250514`
 
 **Usage:**
 ```python

@@ -41,6 +41,8 @@ class ActionResponse(BaseModel):
     url: str = Field(..., description="URL where action was performed")
     timestamp: str = Field(..., description="Timestamp of execution")
     processing_time: float = Field(..., description="Processing time in seconds")
+    model_used: Optional[str] = Field(default=None, description="LLM model used for single-step action")
+    execution_method: Optional[str] = Field(default="single-step", description="Execution method used")
     error: Optional[str] = Field(default=None, description="Error message if failed")
     error_code: Optional[str] = Field(default=None, description="Error code if failed")
 
@@ -89,10 +91,13 @@ class WorkflowRequest(BaseModel):
 class WorkflowResponse(BaseModel):
     success: bool = Field(..., description="Whether workflow succeeded")
     workflow: str = Field(..., description="Workflow instruction that was executed")
+    message: Optional[str] = Field(default=None, description="Summary message from agent including memorized facts")
+    memorized_facts: List[str] = Field(default_factory=list, description="Facts memorized by the agent during execution")
     result: Any = Field(..., description="Agent execution result")
     url: str = Field(..., description="Starting URL")
     timestamp: str = Field(..., description="Timestamp of execution")
     processing_time: float = Field(..., description="Processing time in seconds")
     execution_method: str = Field(default="agent", description="Execution method used")
+    agent_model: Optional[str] = Field(default=None, description="CUA model used for agent workflow")
     error: Optional[str] = Field(default=None, description="Error message if failed")
     error_code: Optional[str] = Field(default=None, description="Error code if failed")

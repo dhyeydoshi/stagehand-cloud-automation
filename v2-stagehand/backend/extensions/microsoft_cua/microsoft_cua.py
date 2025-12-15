@@ -564,14 +564,14 @@ Click elements in their center.  Wait for pages to load after navigation."""
                 reasoning=reasoning,
             )
         elif action == "history_back":
+            # Use keyboard shortcut Alt+Left Arrow to go back
             return AgentAction(
-                action_type="function",
+                action_type="keypress",
                 action=self._action_adapter.validate_python({
-                    "type": "function",
-                    "name": "history_back",
-                    "arguments": {},
+                    "type": "keypress",
+                    "keys": ["Alt", "ArrowLeft"],
                 }),
-                reasoning=reasoning,
+                reasoning=f"{reasoning} (Using Alt+ArrowLeft to go back)",
             )
         elif action == "web_search":
             from urllib.parse import quote

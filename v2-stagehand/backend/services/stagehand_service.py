@@ -14,7 +14,7 @@ class StagehandService:
     def __init__(self):
         pass
 
-    async def _create_session(self, config: Dict[str, Any] = None):
+    async def _create_session(self, config: Dict[str, Any] = None, workflow_type: str = "normal"):
         try:
             import os
             from stagehand import Stagehand, StagehandConfig
@@ -25,10 +25,24 @@ class StagehandService:
             if env not in ["LOCAL", "BROWSERBASE"]:
                 raise ValueError(f"Invalid environment: {env}. Must be 'LOCAL' or 'BROWSERBASE'")
 
-            logger.info(f"Creating new {env} session")
+            logger.info(f"Creating new {env} session for {workflow_type} workflow")
+
+            # Determine which model configuration to use
+            if workflow_type == "agent":
+                # Use CUA model configuration
+                model_name = settings.AGENT_MODEL_NAME
+                model_api_key = settings.AGENT_MODEL_API_KEY
+                model_base_url = settings.AGENT_MODEL_BASE_URL
+                logger.info(f"Using CUA model: {model_name}")
+            else:
+                # Use normal LLM configuration for single-step and multi-step
+                model_name = settings.MODEL_NAME
+                model_api_key = settings.MODEL_API_KEY
+                model_base_url = settings.MODEL_BASE_URL
+                logger.info(f"Using normal LLM model: {model_name}")
 
             using_openrouter = (
-                settings.MODEL_BASE_URL and "openrouter" in settings.MODEL_BASE_URL.lower()
+                model_base_url and "openrouter" in model_base_url.lower()
             )
 
             config_params: Dict[str, Any] = {
@@ -58,17 +72,17 @@ class StagehandService:
                     # ]
                 }
 
-            if settings.MODEL_NAME:
-                config_params["model_name"] = settings.MODEL_NAME
-            if settings.MODEL_API_KEY:
-                config_params["model_api_key"] = settings.MODEL_API_KEY
+            if model_name:
+                config_params["model_name"] = model_name
+            if model_api_key:
+                config_params["model_api_key"] = model_api_key
 
-            if using_openrouter and settings.MODEL_BASE_URL:
+            if using_openrouter and model_base_url:
                 try:
                     config_params["model_client_options"] = {
-                        "api_base": settings.MODEL_BASE_URL
+                        "api_base": model_base_url
                     }
-                    logger.info(f"Using OpenRouter base URL: {settings.MODEL_BASE_URL}")
+                    logger.info(f"Using OpenRouter base URL: {model_base_url}")
                 except Exception as e:
                     logger.warning(f"Could not set model_client_options: {e}")
 
@@ -195,7 +209,9 @@ class StagehandService:
                     "artifacts": artifacts,
                     "url": url,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "processing_time": time.time() - start_time
+                    "processing_time": time.time() - start_time,
+                    "model_used": settings.MODEL_NAME,
+                    "execution_method": "single-step"
                 }
             else:
                 return {
@@ -207,7 +223,9 @@ class StagehandService:
                     "artifacts": [],
                     "url": url,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "processing_time": time.time() - start_time
+                    "processing_time": time.time() - start_time,
+                    "model_used": settings.MODEL_NAME,
+                    "execution_method": "single-step"
                 }
 
         except Exception as e:
@@ -221,7 +239,9 @@ class StagehandService:
                 "artifacts": [],
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processing_time": time.time() - start_time
+                "processing_time": time.time() - start_time,
+                "model_used": settings.MODEL_NAME,
+                "execution_method": "single-step"
             }
 
         finally:
@@ -240,21 +260,26 @@ class StagehandService:
             logger.info("Microsoft CUA registered with Stagehand")
 
         try:
-            stagehand = await self._create_session(config)
+            # Create session with agent workflow type to use CUA model
+            stagehand = await self._create_session(config, workflow_type="agent")
             page = stagehand.page
 
             await self._navigate_with_retry(page, url)
 
+            # Use CUA model configuration
             agent_model = settings.AGENT_MODEL_NAME or "microsoft/Fara-7B"
             agent_instructions = config.get("agent_instructions", "You are a helpful web navigation assistant.")
 
             agent_options = {}
-            api_key = settings.MODEL_API_KEY
+            api_key = settings.AGENT_MODEL_API_KEY
             if api_key:
                 agent_options["apiKey"] = api_key
-            # Add API key for non-Microsoft/Fara Cloud models
+
+            # Configure base URL for Microsoft/Fara models
             if "fara" in agent_model.lower() or "microsoft" in agent_model.lower():
-                agent_options["baseURL"] = settings.MODEL_BASE_URL
+                base_url = settings.AGENT_MODEL_BASE_URL
+                if base_url:
+                    agent_options["baseURL"] = base_url
                 register_microsoft_cua()
 
             agent = stagehand.agent(
@@ -274,10 +299,29 @@ class StagehandService:
                 wait_between_actions=wait_between_actions
             )
 
+            # Extract message and memorized facts from agent result
+            # result is an AgentResult object, not a dict
+            if hasattr(result, 'model_dump'):
+                result_dict = result.model_dump()
+            elif hasattr(result, '__dict__'):
+                result_dict = result.__dict__
+            else:
+                result_dict = {}
+
+            agent_message = result_dict.get("message", "Task completed successfully.")
+            memorized_facts = result_dict.get("memorized_facts", [])
+
+            # Build a comprehensive summary if facts were memorized
+            if memorized_facts:
+                facts_summary = "\n".join([f"- {fact}" for fact in memorized_facts])
+                agent_message = f"{agent_message}\n\nInformation gathered:\n{facts_summary}"
+
             return {
                 "success": True,
                 "workflow": workflow_instruction,
-                "result": result,
+                "message": agent_message,
+                "memorized_facts": memorized_facts,
+                "result": result_dict,
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "processing_time": time.time() - start_time,
@@ -288,12 +332,14 @@ class StagehandService:
         except Exception as e:
             logger.error(f"Error executing workflow: {e}")
             # Get agent_model from local scope if available, otherwise use default
-            model_name = locals().get('agent_model', 'microsoft/Fara-7B')
+            model_name = locals().get('agent_model', settings.AGENT_MODEL_NAME or 'microsoft/Fara-7B')
             return {
                 "success": False,
                 "error": str(e),
                 "error_code": "WORKFLOW_EXECUTION_ERROR",
                 "workflow": workflow_instruction,
+                "message": None,
+                "memorized_facts": [],
                 "result": None,
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -616,7 +662,9 @@ class StagehandService:
                 "steps": steps_results,
                 "total_execution_time": time.time() - start_time,
                 "started_at": datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat(),
-                "completed_at": end_time.isoformat()
+                "completed_at": end_time.isoformat(),
+                "model_used": settings.MODEL_NAME,
+                "execution_method": "multi-step"
             }
 
         except Exception as e:
@@ -636,15 +684,12 @@ class StagehandService:
                 "steps": [],
                 "total_execution_time": time.time() - start_time,
                 "started_at": datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat(),
-                "completed_at": end_time.isoformat()
+                "completed_at": end_time.isoformat(),
+                "model_used": settings.MODEL_NAME,
+                "execution_method": "multi-step"
             }
 
         finally:
             if stagehand:
-                try:
-                    if 'wait_for_page_stability' in locals():
-                        await wait_for_page_stability("shutdown cleanup", force=True, require_full_load=True)
-                except Exception as final_wait_error:
-                    logger.debug(f"Final stability check skipped: {final_wait_error}")
                 logger.info("Closing session after workflow")
                 await self._close_session(stagehand)
