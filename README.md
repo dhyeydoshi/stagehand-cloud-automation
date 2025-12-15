@@ -7,8 +7,6 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.50.0+-red.svg)](https://streamlit.io/)
 [![Stagehand](https://img.shields.io/badge/Stagehand-0.5.5-purple.svg)](https://github.com/browserbase/stagehand-python)
 
-**Status:** ✅ Production Ready | **Architecture:** Session-per-request | **Python:** 3.12+
-
 ---
 
 ## What You Can Do
