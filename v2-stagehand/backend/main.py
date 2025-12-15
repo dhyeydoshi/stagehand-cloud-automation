@@ -6,19 +6,15 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+import time
 
 from config import settings
 from services.stagehand_service import StagehandService
 from schemas.stagehand_schemas import (
     ActionRequest,
     ActionResponse,
-    ExtractionRequest,
-    ExtractionResponse,
     WorkflowRequest,
     WorkflowResponse,
-    ProductData,
-    JobPosting,
-    CompanyInfo,
 )
 from schemas.multistep_schemas import MultiStepJobRequest, MultiStepJobResponse
 from schemas.common import HealthResponse
@@ -33,13 +29,6 @@ logger = logging.getLogger(__name__)
 # Initialize Stagehand service
 stagehand_service = StagehandService()
 
-# Schema mapping for extraction
-SCHEMA_MAP = {
-    "ProductData": ProductData,
-    "JobPosting": JobPosting,
-    "CompanyInfo": CompanyInfo,
-}
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,18 +39,18 @@ async def lifespan(app: FastAPI):
         # Verify Stagehand configuration
         connection_ok = await stagehand_service.test_connection()
         if connection_ok:
-            logger.info("✅ Stagehand configuration verified")
+            logger.info("Stagehand configuration verified")
         else:
-            logger.warning("⚠️  Stagehand configuration incomplete - will initialize on first use")
+            logger.warning("Stagehand configuration incomplete - will initialize on first use")
     except Exception as e:
-        logger.warning(f"⚠️  Stagehand check failed: {e}")
+        logger.warning(f"Stagehand check failed: {e}")
 
-    logger.info("🚀 Application startup completed")
+    logger.info("Application startup completed")
 
     yield
 
     logger.info("Shutting down Stagehand API...")
-    logger.info("✅ Application shutdown complete (session-per-job mode - no cleanup needed)")
+    logger.info("Application shutdown complete (session-per-job mode - no cleanup needed)")
 
 
 app = FastAPI(
@@ -141,49 +130,10 @@ async def execute_action(request: ActionRequest):
 
 
 @app.post(
-    "/api/v1/stagehand/extract",
-    response_model=ExtractionResponse,
-    tags=["Stagehand"],
-    summary="Extract structured data"
-)
-async def extract_data(request: ExtractionRequest):
-    try:
-        logger.info(f"Extracting data from {request.url} using schema {request.schema_name}")
-
-        # Get the actual Pydantic schema class
-        schema_class = SCHEMA_MAP.get(request.schema_name)
-        if not schema_class:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown schema: {request.schema_name}. Available: {list(SCHEMA_MAP.keys())}"
-            )
-
-        result = await stagehand_service.extract_with_schema(
-            url=request.url,
-            instruction=request.instruction,
-            schema=schema_class,  # Pass actual Pydantic class, not string
-            config={
-                "take_screenshots": request.take_screenshots
-            }
-        )
-        logger.info(f"Extraction completed successfully")
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Extraction failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Extraction failed: {str(e)}"
-        )
-
-
-@app.post(
     "/api/v1/stagehand/workflow",
     response_model=WorkflowResponse,
     tags=["Stagehand"],
-    summary="Execute agent workflow"
+    summary="Execute agent workflow (supports Google, OpenAI, Anthropic, Microsoft FARA(Local model))"
 )
 async def execute_workflow(request: WorkflowRequest):
     try:
@@ -198,7 +148,15 @@ async def execute_workflow(request: WorkflowRequest):
             }
         )
         logger.info(f"Workflow completed successfully")
-        return result
+        return WorkflowResponse(
+            success=result["success"],
+            workflow=request.workflow_instruction,
+            result=result,
+            url=request.url,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            processing_time=result.get("processing_time", 0.0),
+            execution_method=f"agent:{result['agent_model']}",
+        )
 
     except Exception as e:
         logger.error(f"Workflow execution failed: {e}")
@@ -233,43 +191,6 @@ async def execute_multistep(request: MultiStepJobRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Multi-step workflow failed: {str(e)}"
         )
-
-
-@app.get("/api/v1/stagehand/schemas",
-    tags=["Stagehand"],
-    summary="List available extraction schemas")
-async def list_available_schemas():
-    try:
-        schemas = [
-            {
-                "name": "ProductData",
-                "description": "Extract product information",
-                "fields": ["name", "price", "rating", "in_stock", "description"]
-            },
-            {
-                "name": "JobPosting",
-                "description": "Extract job posting details",
-                "fields": ["title", "company", "location", "salary_range", "description", "requirements"]
-            },
-            {
-                "name": "CompanyInfo",
-                "description": "Extract company information",
-                "fields": ["name", "description", "founded_year", "employee_count", "industry"]
-            }
-        ]
-
-        return {
-            "schemas": schemas,
-            "note": "Schemas are optional. You can also extract data without schemas using natural language instructions."
-        }
-
-    except Exception as e:
-        logger.error(f"Error listing schemas: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list schemas"
-        )
-
 
 
 # Error Handlers

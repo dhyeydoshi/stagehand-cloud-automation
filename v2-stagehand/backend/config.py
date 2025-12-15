@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     MODEL_API_KEY: Optional[str] = Field(default=None, description="Model API key")
     MODEL_NAME: str = Field(default="", description="LLM model name")
     MODEL_BASE_URL: str = Field(default="", description="Model base URL")
+    ENABLE_MICROSOFT_CUA: bool = Field(default=False, description="Enable Microsoft FARA CUA")
+    AGENT_MODEL_NAME: str = Field(default="microsoft/Fara-7B", description="Agent model name")
 
 
     model_config = SettingsConfigDict(

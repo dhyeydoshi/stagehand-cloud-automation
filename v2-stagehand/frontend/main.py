@@ -104,7 +104,7 @@ def render_sidebar():
         )
         st.caption(cache_message)
 
-        if st.button("Refresh backend status", key="refresh_backend_status", use_container_width=True):
+        if st.button("Refresh backend status", key="refresh_backend_status", width='stretch'):
             invalidate_health_cache()
             st.rerun()
 
@@ -196,16 +196,6 @@ def render_home():
         """)
 
     with col2:
-        # st.markdown("""
-        # ### Extract Data
-        # Extract structured data using predefined schemas.
-        # - Product information
-        # - Job postings
-        # - Company details
-        #
-        # **Example:** Extract name, price, and rating
-        # """)
-
         st.markdown("""
         ### Multi-Step Workflows
         Build sequential workflows with full control.
@@ -247,7 +237,7 @@ def render_home():
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("Launch Stagehand", type="primary", use_container_width=True):
+        if st.button("Launch Stagehand", type="primary", width='stretch'):
             st.session_state.show_features = True
             st.rerun()
 

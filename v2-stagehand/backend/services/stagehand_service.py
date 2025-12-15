@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any
 from config import settings
+from extensions.microsoft_cua.factory import register_microsoft_cua
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ class StagehandService:
             stagehand = Stagehand(stagehand_config)
             await stagehand.init()
 
-            logger.info(f"✓ {env} session created successfully")
+            logger.info(f"{env} session created successfully")
             return stagehand
 
         except ValueError as ve:
@@ -109,7 +110,7 @@ class StagehandService:
             try:
                 logger.info(f"Navigating to {url} (attempt {attempt + 1}/{max_retries}, timeout: {timeout}ms)")
                 await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-                logger.info(f"✓ Successfully navigated to {url}")
+                logger.info(f"Successfully navigated to {url}")
                 return True
             except Exception as e:
                 error_msg = str(e)
@@ -137,7 +138,7 @@ class StagehandService:
                 logger.warning("MODEL_API_KEY not configured")
                 return False
 
-            logger.info("✓ Browserbase configuration verified (will connect on first job)")
+            logger.info("Browserbase configuration verified (will connect on first job)")
             return True
 
         except Exception as e:
@@ -173,16 +174,19 @@ class StagehandService:
                 if config.get("take_screenshots", False):
                     import base64
                     for i, element in enumerate(results):
-                        locator = page.locator(element.selector)
-                        await locator.scroll_into_view_if_needed()
-                        element_screenshot_bytes = await locator.screenshot()
-                        element_screenshot_b64 = base64.b64encode(element_screenshot_bytes).decode('utf-8')
-                        artifacts.append({
-                            "type": "screenshot",
-                            "data": element_screenshot_b64,
-                            "format": "png",
-                            "description": element.description or f"Screenshot of observed element {i + 1}"
-                        })
+                        try:
+                            locator = page.locator(element.selector)
+                            await locator.scroll_into_view_if_needed()
+                            element_screenshot_bytes = await locator.screenshot()
+                            element_screenshot_b64 = base64.b64encode(element_screenshot_bytes).decode('utf-8')
+                            artifacts.append({
+                                "type": "screenshot",
+                                "data": element_screenshot_b64,
+                                "format": "png",
+                                "description": element.description or f"Screenshot of observed element {i + 1}"
+                            })
+                        except Exception as e:
+                            logger.warning(f"Failed to take screenshot for element {i + 1}: {e}")
 
                 return {
                     "success": True,
@@ -221,69 +225,6 @@ class StagehandService:
             }
 
         finally:
-            # Always close session
-            if stagehand:
-                await self._close_session(stagehand)
-
-    async def extract_with_schema(
-        self,
-        url: str,
-        instruction: str,
-        schema: Any,
-        config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        start_time = time.time()
-        stagehand = None
-
-        try:
-            stagehand = await self._create_session(config)
-            page = stagehand.page
-
-            await self._navigate_with_retry(page, url)
-
-            data = await page.extract(
-                instruction=instruction,
-                schema=schema
-            )
-
-            artifacts = []
-            if config.get("take_screenshots", False):
-                import base64
-                screenshot_bytes = await page.screenshot()
-                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-                artifacts.append({
-                    "type": "screenshot",
-                    "data": screenshot_b64,
-                    "format": "png"
-                })
-
-            return {
-                "success": True,
-                "data": data.model_dump() if hasattr(data, 'model_dump') else data,
-                "schema": schema.__name__ if hasattr(schema, '__name__') else str(schema),
-                "instruction": instruction,
-                "artifacts": artifacts,
-                "url": url,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processing_time": time.time() - start_time
-            }
-
-        except Exception as e:
-            logger.error(f"Error extracting with schema: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "error_code": "EXTRACTION_ERROR",
-                "data": {},
-                "schema": schema.__name__ if hasattr(schema, '__name__') else str(schema),
-                "instruction": instruction,
-                "artifacts": [],
-                "url": url,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processing_time": time.time() - start_time
-            }
-
-        finally:
             if stagehand:
                 await self._close_session(stagehand)
 
@@ -295,6 +236,8 @@ class StagehandService:
     ) -> Dict[str, Any]:
         start_time = time.time()
         stagehand = None
+        if settings.ENABLE_MICROSOFT_CUA:
+            logger.info("Microsoft CUA registered with Stagehand")
 
         try:
             stagehand = await self._create_session(config)
@@ -302,14 +245,17 @@ class StagehandService:
 
             await self._navigate_with_retry(page, url)
 
-            agent_model = 'gemini-2.5-computer-use-preview-10-2025'
+            agent_model = settings.AGENT_MODEL_NAME or "microsoft/Fara-7B"
             agent_instructions = config.get("agent_instructions", "You are a helpful web navigation assistant.")
 
-            api_key = settings.MODEL_API_KEY
-
             agent_options = {}
+            api_key = settings.MODEL_API_KEY
             if api_key:
                 agent_options["apiKey"] = api_key
+            # Add API key for non-Microsoft/Fara Cloud models
+            if "fara" in agent_model.lower() or "microsoft" in agent_model.lower():
+                agent_options["baseURL"] = settings.MODEL_BASE_URL
+                register_microsoft_cua()
 
             agent = stagehand.agent(
                 model=agent_model,
@@ -335,11 +281,14 @@ class StagehandService:
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "processing_time": time.time() - start_time,
-                "execution_method": "agent"
+                "execution_method": "agent",
+                "agent_model": agent_model
             }
 
         except Exception as e:
             logger.error(f"Error executing workflow: {e}")
+            # Get agent_model from local scope if available, otherwise use default
+            model_name = locals().get('agent_model', 'microsoft/Fara-7B')
             return {
                 "success": False,
                 "error": str(e),
@@ -349,7 +298,8 @@ class StagehandService:
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "processing_time": time.time() - start_time,
-                "execution_method": "agent"
+                "execution_method": "agent",
+                "agent_model": model_name
             }
 
         finally:

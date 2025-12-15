@@ -1,6 +1,6 @@
 from .common import HealthResponse
 from .multistep_schemas import StepResult, MultiStepJobRequest, StepInstruction, InstructionType
-from .stagehand_schemas import ActionRequest, ActionResponse, WorkflowRequest, WorkflowResponse, ExtractionRequest, ExtractionResponse
+from .stagehand_schemas import ActionRequest, ActionResponse, WorkflowRequest, WorkflowResponse
 
 __all__ = [
     "HealthResponse",

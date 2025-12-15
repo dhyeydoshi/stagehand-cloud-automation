@@ -9,14 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Microsoft CUA Agent Integration**: Added support for Microsoft Computer Use Agent (Fara-7B model)
+  - New extension system in `backend/extensions/microsoft_cua/`
+  - Factory pattern for agent client creation
+  - Full integration with Stagehand agent system
+  - Supports Azure OpenAI endpoints for CUA execution
+- **Fact Extraction & Display**: Agent now properly returns extracted data to frontend
+  - Memorized facts from `pause_and_memorize_fact` actions are included in final message
+  - Structured display with "Extracted Information:" section
+  - Bullet-point formatting for easy readability
+- **Enhanced Agent Instructions**: Improved system prompts for better data extraction
+  - Clear guidelines for using `pause_and_memorize_fact`
+  - Fact formatting standards 
+  - Better termination messages with extracted data summaries
 ### Changed
 - **Multi-Step Stability Checks**: Backend now performs adaptive load-state checks with configurable intervals (`stability_check_interval_ms`, `stability_timeout_ms`, `stability_extra_wait_ms`) instead of fixed sleep calls, cutting idle time while keeping Stagehand runs stable.
 - **Frontend Health Polling**: Streamlit sidebar caches `/health` responses for 30 seconds and adds a manual refresh button, reducing redundant requests during reruns.
 - **Multi-Step UX**: The single-step form (and its auto-resetting wait slider) has been removed; the streamlined bulk-add table now handles all workflow creation with persistent wait values, add/reset buttons, and easy multi-row editing.
 - **Workflow Load Guardrails**: Multi-step backend waits for `domcontentloaded`, `load`, and `networkidle` states before and after navigations/critical actions so pages fully load scripts/CSS before Stagehand sessions close.
 - **Observe/Act Auto-Retry**: Navigation-induced "Execution context was destroyed" errors now trigger an automatic stability wait and one retry before surfacing a failure, reducing spurious errors on redirect-heavy pages.
-- **Automated Tests**: Added pytest suites for FastAPI routes, Stagehand service logic, and Streamlit UI smoke flows; run with `pytest` after installing backend/frontend requirements.
-- **Deployment Scripts**: Azure (`v2-stagehand/azure/deploy-azure.sh`) and AWS ECS (`v2-stagehand/aws-ecs/deploy-ecs.sh`) deployments now read from `.env` files, build images from the backend directory, and run end-to-end without interactive prompts or missing Dockerfiles.
+- **Backend API Cleanup**: Simplified main.py by removing redundant code
+- **Schema Simplification**: Streamlined stagehand_schemas.py
+- **Service Layer Optimization**: Refactored stagehand_service.py for better maintainability
+- **Frontend Code Reduction**: Cleaned up stagehand_features.py
+
+### Technical Details
+- Microsoft CUA agent uses Azure OpenAI API with custom endpoints
+- Agent viewport is intelligently resized for optimal model performance (1288x711 → calculated dimensions)
+- Screenshot compression and caching to reduce token usage
+- Maximum image limit configurable (default: 1 recent screenshot)
+- Temperature set to 0 for deterministic outputs
+- Supports multiple action types: click, type, scroll, wait, web_search, pause_and_memorize_fact, terminate
+- Self-healing capabilities when DOM changes during execution
 
 ---
 
