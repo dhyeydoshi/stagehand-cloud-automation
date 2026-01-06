@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clear guidelines for using `pause_and_memorize_fact`
   - Fact formatting standards 
   - Better termination messages with extracted data summaries
+- **Dockerfile**: Added Dockerfile for containerized deployment
+  - Based on official Python 3.12 slim image
+  - Installs dependencies and sets up the FastAPI server and Streamlit frontend
+  - Entry point configured to run uvicorn server
 ### Changed
 - **Model Configuration Architecture**: Refactored backend to use separate model configurations based on workflow type
   - `_create_session()` now accepts `workflow_type` parameter ("normal" or "agent")

@@ -15,11 +15,7 @@ ExtendedAgentProvider = Enum('ExtendedAgentProvider', all_providers, type=str)
 
 def register_microsoft_cua():
 
-    MODEL_TO_CLIENT_CLASS_MAP["microsoft-fara-7b"] = MicrosoftCUAClient
-    MODEL_TO_CLIENT_CLASS_MAP["microsoft/fara-7b"] = MicrosoftCUAClient
     MODEL_TO_CLIENT_CLASS_MAP["microsoft/Fara-7B"] = MicrosoftCUAClient
-    MODEL_TO_PROVIDER_MAP["microsoft-fara-7b"] = ExtendedAgentProvider.MICROSOFT
-    MODEL_TO_PROVIDER_MAP["microsoft-fara-7b"] = ExtendedAgentProvider.MICROSOFT
     MODEL_TO_PROVIDER_MAP["microsoft/Fara-7B"] = ExtendedAgentProvider.MICROSOFT
 
     logger.info("Registered microsoft cua model")

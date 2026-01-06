@@ -176,7 +176,44 @@ streamlit run main.py
 - **API Documentation**: http://127.0.0.1:8000/docs
 - **Health Check**: http://127.0.0.1:8000/health
 
+---
 
+## Docker Deployment
+
+### Prerequisites
+- Docker Desktop installed and running
+- `.env` file configured in `backend/` directory
+
+### Quick Start with Docker Compose
+
+```bash
+# Build and run the application
+docker-compose up --build
+
+# Or run in background
+docker-compose up -d --build
+```
+
+### Manual Docker Build
+
+```bash
+# Build the image
+docker build -t stagehand-app .
+
+# Run the container
+docker run -p 8000:8000 -p 8501:8501 \
+  -v $(pwd)/backend/.env:/app/backend/.env:ro \
+  stagehand-app
+```
+
+### Access Docker Application
+
+- **Frontend Dashboard**: http://localhost:8501
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
+
+```
 ---
 
 ## Configuration Examples
@@ -556,5 +593,3 @@ Frontend Display
 ## Contributing
 
 Pull requests are welcome! Please open an issue first if you plan a large change.
-
-
