@@ -106,6 +106,8 @@ class MultiStepJobResponse(BaseModel):
     total_execution_time: float = Field(..., description="Total execution time in seconds")
     started_at: str = Field(..., description="Job start timestamp")
     completed_at: str = Field(..., description="Job completion timestamp")
+    model_used: Optional[str] = Field(default=None, description="LLM model used for multi-step workflow")
+    execution_method: Optional[str] = Field(default="multi-step", description="Execution method used")
     error: Optional[str] = Field(default=None, description="Overall error message if failed")
     error_code: Optional[str] = Field(default=None, description="Overall error code if failed")
 

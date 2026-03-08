@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any
 from config import settings
+from extensions.microsoft_cua.factory import register_microsoft_cua
 
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ class StagehandService:
     def __init__(self):
         pass
 
-    async def _create_session(self, config: Dict[str, Any] = None):
+    async def _create_session(self, config: Dict[str, Any] = None, workflow_type: str = "normal"):
         try:
             import os
             from stagehand import Stagehand, StagehandConfig
@@ -24,10 +25,24 @@ class StagehandService:
             if env not in ["LOCAL", "BROWSERBASE"]:
                 raise ValueError(f"Invalid environment: {env}. Must be 'LOCAL' or 'BROWSERBASE'")
 
-            logger.info(f"Creating new {env} session")
+            logger.info(f"Creating new {env} session for {workflow_type} workflow")
+
+            # Determine which model configuration to use
+            if workflow_type == "agent":
+                # Use CUA model configuration
+                model_name = settings.AGENT_MODEL_NAME
+                model_api_key = settings.AGENT_MODEL_API_KEY
+                model_base_url = settings.AGENT_MODEL_BASE_URL
+                logger.info(f"Using CUA model: {model_name}")
+            else:
+                # Use normal LLM configuration for single-step and multi-step
+                model_name = settings.MODEL_NAME
+                model_api_key = settings.MODEL_API_KEY
+                model_base_url = settings.MODEL_BASE_URL
+                logger.info(f"Using normal LLM model: {model_name}")
 
             using_openrouter = (
-                settings.MODEL_BASE_URL and "openrouter" in settings.MODEL_BASE_URL.lower()
+                model_base_url and "openrouter" in model_base_url.lower()
             )
 
             config_params: Dict[str, Any] = {
@@ -57,17 +72,17 @@ class StagehandService:
                     # ]
                 }
 
-            if settings.MODEL_NAME:
-                config_params["model_name"] = settings.MODEL_NAME
-            if settings.MODEL_API_KEY:
-                config_params["model_api_key"] = settings.MODEL_API_KEY
+            if model_name:
+                config_params["model_name"] = model_name
+            if model_api_key:
+                config_params["model_api_key"] = model_api_key
 
-            if using_openrouter and settings.MODEL_BASE_URL:
+            if using_openrouter and model_base_url:
                 try:
                     config_params["model_client_options"] = {
-                        "api_base": settings.MODEL_BASE_URL
+                        "api_base": model_base_url
                     }
-                    logger.info(f"Using OpenRouter base URL: {settings.MODEL_BASE_URL}")
+                    logger.info(f"Using OpenRouter base URL: {model_base_url}")
                 except Exception as e:
                     logger.warning(f"Could not set model_client_options: {e}")
 
@@ -78,7 +93,7 @@ class StagehandService:
             stagehand = Stagehand(stagehand_config)
             await stagehand.init()
 
-            logger.info(f"✓ {env} session created successfully")
+            logger.info(f"{env} session created successfully")
             return stagehand
 
         except ValueError as ve:
@@ -109,7 +124,7 @@ class StagehandService:
             try:
                 logger.info(f"Navigating to {url} (attempt {attempt + 1}/{max_retries}, timeout: {timeout}ms)")
                 await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-                logger.info(f"✓ Successfully navigated to {url}")
+                logger.info(f"Successfully navigated to {url}")
                 return True
             except Exception as e:
                 error_msg = str(e)
@@ -137,7 +152,7 @@ class StagehandService:
                 logger.warning("MODEL_API_KEY not configured")
                 return False
 
-            logger.info("✓ Browserbase configuration verified (will connect on first job)")
+            logger.info("Browserbase configuration verified (will connect on first job)")
             return True
 
         except Exception as e:
@@ -173,16 +188,19 @@ class StagehandService:
                 if config.get("take_screenshots", False):
                     import base64
                     for i, element in enumerate(results):
-                        locator = page.locator(element.selector)
-                        await locator.scroll_into_view_if_needed()
-                        element_screenshot_bytes = await locator.screenshot()
-                        element_screenshot_b64 = base64.b64encode(element_screenshot_bytes).decode('utf-8')
-                        artifacts.append({
-                            "type": "screenshot",
-                            "data": element_screenshot_b64,
-                            "format": "png",
-                            "description": element.description or f"Screenshot of observed element {i + 1}"
-                        })
+                        try:
+                            locator = page.locator(element.selector)
+                            await locator.scroll_into_view_if_needed()
+                            element_screenshot_bytes = await locator.screenshot()
+                            element_screenshot_b64 = base64.b64encode(element_screenshot_bytes).decode('utf-8')
+                            artifacts.append({
+                                "type": "screenshot",
+                                "data": element_screenshot_b64,
+                                "format": "png",
+                                "description": element.description or f"Screenshot of observed element {i + 1}"
+                            })
+                        except Exception as e:
+                            logger.warning(f"Failed to take screenshot for element {i + 1}: {e}")
 
                 return {
                     "success": True,
@@ -191,7 +209,9 @@ class StagehandService:
                     "artifacts": artifacts,
                     "url": url,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "processing_time": time.time() - start_time
+                    "processing_time": time.time() - start_time,
+                    "model_used": settings.MODEL_NAME,
+                    "execution_method": "single-step"
                 }
             else:
                 return {
@@ -203,7 +223,9 @@ class StagehandService:
                     "artifacts": [],
                     "url": url,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "processing_time": time.time() - start_time
+                    "processing_time": time.time() - start_time,
+                    "model_used": settings.MODEL_NAME,
+                    "execution_method": "single-step"
                 }
 
         except Exception as e:
@@ -217,70 +239,9 @@ class StagehandService:
                 "artifacts": [],
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processing_time": time.time() - start_time
-            }
-
-        finally:
-            # Always close session
-            if stagehand:
-                await self._close_session(stagehand)
-
-    async def extract_with_schema(
-        self,
-        url: str,
-        instruction: str,
-        schema: Any,
-        config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        start_time = time.time()
-        stagehand = None
-
-        try:
-            stagehand = await self._create_session(config)
-            page = stagehand.page
-
-            await self._navigate_with_retry(page, url)
-
-            data = await page.extract(
-                instruction=instruction,
-                schema=schema
-            )
-
-            artifacts = []
-            if config.get("take_screenshots", False):
-                import base64
-                screenshot_bytes = await page.screenshot()
-                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-                artifacts.append({
-                    "type": "screenshot",
-                    "data": screenshot_b64,
-                    "format": "png"
-                })
-
-            return {
-                "success": True,
-                "data": data.model_dump() if hasattr(data, 'model_dump') else data,
-                "schema": schema.__name__ if hasattr(schema, '__name__') else str(schema),
-                "instruction": instruction,
-                "artifacts": artifacts,
-                "url": url,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processing_time": time.time() - start_time
-            }
-
-        except Exception as e:
-            logger.error(f"Error extracting with schema: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "error_code": "EXTRACTION_ERROR",
-                "data": {},
-                "schema": schema.__name__ if hasattr(schema, '__name__') else str(schema),
-                "instruction": instruction,
-                "artifacts": [],
-                "url": url,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processing_time": time.time() - start_time
+                "processing_time": time.time() - start_time,
+                "model_used": settings.MODEL_NAME,
+                "execution_method": "single-step"
             }
 
         finally:
@@ -295,21 +256,31 @@ class StagehandService:
     ) -> Dict[str, Any]:
         start_time = time.time()
         stagehand = None
+        if settings.ENABLE_MICROSOFT_CUA:
+            logger.info("Microsoft CUA registered with Stagehand")
 
         try:
-            stagehand = await self._create_session(config)
+            # Create session with agent workflow type to use CUA model
+            stagehand = await self._create_session(config, workflow_type="agent")
             page = stagehand.page
 
             await self._navigate_with_retry(page, url)
 
-            agent_model = 'gemini-2.5-computer-use-preview-10-2025'
+            # Use CUA model configuration
+            agent_model = settings.AGENT_MODEL_NAME or "microsoft/Fara-7B"
             agent_instructions = config.get("agent_instructions", "You are a helpful web navigation assistant.")
 
-            api_key = settings.MODEL_API_KEY
-
             agent_options = {}
+            api_key = settings.AGENT_MODEL_API_KEY
             if api_key:
                 agent_options["apiKey"] = api_key
+
+            # Configure base URL for Microsoft/Fara models
+            if "fara" in agent_model.lower() or "microsoft" in agent_model.lower():
+                base_url = settings.AGENT_MODEL_BASE_URL
+                if base_url:
+                    agent_options["baseURL"] = base_url
+                register_microsoft_cua()
 
             agent = stagehand.agent(
                 model=agent_model,
@@ -328,28 +299,53 @@ class StagehandService:
                 wait_between_actions=wait_between_actions
             )
 
+            # Extract message and memorized facts from agent result
+            # result is an AgentResult object, not a dict
+            if hasattr(result, 'model_dump'):
+                result_dict = result.model_dump()
+            elif hasattr(result, '__dict__'):
+                result_dict = result.__dict__
+            else:
+                result_dict = {}
+
+            agent_message = result_dict.get("message", "Task completed successfully.")
+            memorized_facts = result_dict.get("memorized_facts", [])
+
+            # Build a comprehensive summary if facts were memorized
+            if memorized_facts:
+                facts_summary = "\n".join([f"- {fact}" for fact in memorized_facts])
+                agent_message = f"{agent_message}\n\nInformation gathered:\n{facts_summary}"
+
             return {
                 "success": True,
                 "workflow": workflow_instruction,
-                "result": result,
+                "message": agent_message,
+                "memorized_facts": memorized_facts,
+                "result": result_dict,
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "processing_time": time.time() - start_time,
-                "execution_method": "agent"
+                "execution_method": "agent",
+                "agent_model": agent_model
             }
 
         except Exception as e:
             logger.error(f"Error executing workflow: {e}")
+            # Get agent_model from local scope if available, otherwise use default
+            model_name = locals().get('agent_model', settings.AGENT_MODEL_NAME or 'microsoft/Fara-7B')
             return {
                 "success": False,
                 "error": str(e),
                 "error_code": "WORKFLOW_EXECUTION_ERROR",
                 "workflow": workflow_instruction,
+                "message": None,
+                "memorized_facts": [],
                 "result": None,
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "processing_time": time.time() - start_time,
-                "execution_method": "agent"
+                "execution_method": "agent",
+                "agent_model": model_name
             }
 
         finally:
@@ -367,40 +363,50 @@ class StagehandService:
         stagehand = None
 
         try:
+            config = config or {}
             logger.info("Creating session for multi-step workflow")
             stagehand = await self._create_session(config)
             page = stagehand.page
             steps_results = []
+            stability_interval_ms = max(0, config.get("stability_check_interval_ms", 1000))
+            stability_timeout_ms = max(1000, config.get("stability_timeout_ms", 15000))
+            stability_extra_wait_ms = max(0, config.get("stability_extra_wait_ms", 2000))
+            last_stability_check = 0.0
+
+            async def wait_for_page_stability(
+                reason: str = "",
+                force: bool = False,
+                require_full_load: bool = False
+            ):
+                nonlocal last_stability_check
+                now = time.time()
+                if not force and (now - last_stability_check) < (stability_interval_ms / 1000):
+                    return
+
+                reason_label = f" before {reason}" if reason else ""
+                logger.info(f"Waiting for page stability{reason_label}")
+
+                load_states = ["domcontentloaded"]
+                if require_full_load:
+                    load_states.append("load")
+                load_states.append("networkidle")
+
+                for state in load_states:
+                    try:
+                        await page.wait_for_load_state(state, timeout=stability_timeout_ms)
+                        logger.debug(f"✓ {state} state reached{reason_label}")
+                    except Exception as state_error:
+                        logger.debug(f"{state} state wait skipped{reason_label}: {state_error}")
+
+                if stability_extra_wait_ms:
+                    await asyncio.sleep(stability_extra_wait_ms / 1000)
+
+                last_stability_check = time.time()
 
             await self._navigate_with_retry(page, url)
             logger.info(f"Navigated to {url}")
-
-            # Wait for page to be fully stable - comprehensive loading strategy
-            logger.info("Waiting for page to fully load (content, scripts, CSS)...")
-
-            try:
-                await page.wait_for_load_state("domcontentloaded", timeout=60000)
-                logger.info("✓ DOM content loaded")
-            except Exception as e:
-                logger.warning(f"DOM content loaded timeout: {e}")
-
-            try:
-                await page.wait_for_load_state("load", timeout=20000)
-                logger.info("✓ All resources loaded")
-            except Exception as e:
-                logger.warning(f"Load state timeout: {e}")
-
-            # Step 3: Wait for network to be idle (no ongoing requests)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-                logger.info("✓ Network idle (no active requests)")
-            except Exception as e:
-                logger.warning(f"Network idle timeout: {e}, continuing anyway")
-
-            logger.info("Waiting additional 5 seconds for JavaScript and dynamic content...")
-            await asyncio.sleep(5)
-
-            logger.info("✓ Page fully loaded and stable")
+            await wait_for_page_stability("initial navigation", force=True, require_full_load=True)
+            logger.info("✓ Page stable and ready for instructions")
 
             for idx, instruction in enumerate(instructions, 1):
                 step_start = time.time()
@@ -431,110 +437,133 @@ class StagehandService:
                 try:
                     if step_type == "goto":
                         await page.goto(instruction_text)
+                        await wait_for_page_stability(f"goto step {idx}", force=True, require_full_load=True)
                         step_result["success"] = True
 
                     elif step_type == "observe":
-                        try:
-                            logger.info(f"Calling page.observe with instruction: '{instruction_text}'")
-
-                            # Wait for page to be stable before observing - comprehensive check
-                            logger.info("Ensuring page stability before observe operation...")
+                        nav_retry_attempted = False
+                        while True:
                             try:
-                                await page.wait_for_load_state("domcontentloaded", timeout=8000)
-                                logger.info("✓ DOM ready for observe")
-                            except Exception as wait_error:
-                                logger.warning(f"DOM wait failed: {wait_error}")
-
-                            try:
-                                await page.wait_for_load_state("networkidle", timeout=8000)
-                                logger.info("✓ Network idle for observe")
-                            except Exception as wait_error:
-                                logger.warning(f"Network idle wait failed: {wait_error}")
-
-                            # Additional wait for dynamic content and JavaScript
-                            await asyncio.sleep(2)
-                            logger.info("✓ Page stable, proceeding with observe")
-
-                            results = await page.observe(
-                                instruction=instruction_text,
-                                draw_overlay=config.get("draw_overlay", False)
-                            )
-                            step_result["success"] = True
-                            step_result["data"] = {
-                                "observed_elements": len(results),
-                                "elements_found": len(results) > 0
-                            }
-                            logger.info(f"Observe found {len(results)} elements")
-                        except Exception as observe_error:
-                            logger.error(f"Observe error: {observe_error}")
-                            step_result["success"] = False
-                            error_msg = str(observe_error)
-
-                            if "Execution context was destroyed" in error_msg or "navigation" in error_msg.lower():
-                                step_result["error"] = (
-                                    f"Page navigation occurred during observe: {error_msg}. "
-                                    "This usually happens when:\n"
-                                    "1. The page automatically redirected\n"
-                                    "2. A popup or modal appeared\n"
-                                    "3. The page is still loading\n"
-                                    "Try: Add a 'wait' step before observe, or increase wait_after time"
+                                await wait_for_page_stability(
+                                    f"observe step {idx}",
+                                    force=nav_retry_attempted,
+                                    require_full_load=True
                                 )
-                                step_result["error_code"] = "NAVIGATION_ERROR"
-                            elif "Server returned error" in error_msg:
-                                step_result["error"] = (
-                                    f"Stagehand AI model error: {error_msg}. "
-                                    "Possible causes:\n"
-                                    "1. Missing or invalid MODEL_API_KEY in .env\n"
-                                    "2. MODEL_NAME not supported or incorrectly configured\n"
-                                    "3. Page content too complex for the instruction\n"
-                                    "4. Network issues with AI provider\n"
-                                    f"Current config: MODEL_NAME={settings.MODEL_NAME}, "
-                                    f"API_KEY={'set' if settings.MODEL_API_KEY else 'NOT SET'}"
+                                logger.info(f"Calling page.observe with instruction: '{instruction_text}'")
+
+                                results = await page.observe(
+                                    instruction=instruction_text,
+                                    draw_overlay=config.get("draw_overlay", False)
                                 )
-                                step_result["error_code"] = "AI_MODEL_ERROR"
-                            else:
-                                step_result["error"] = f"Observe failed: {error_msg}"
-                                step_result["error_code"] = "OBSERVE_ERROR"
+                                step_result["success"] = True
+                                step_result["data"] = {
+                                    "observed_elements": len(results),
+                                    "elements_found": len(results) > 0
+                                }
+                                logger.info(f"Observe found {len(results)} elements")
+                                break
+                            except Exception as observe_error:
+                                logger.error(f"Observe error: {observe_error}")
+                                error_msg = str(observe_error)
+                                nav_issue = (
+                                    "Execution context was destroyed" in error_msg
+                                    or "navigation" in error_msg.lower()
+                                )
+                                if nav_issue and not nav_retry_attempted:
+                                    nav_retry_attempted = True
+                                    logger.warning(
+                                        "Navigation detected during observe; waiting for page to settle and retrying once"
+                                    )
+                                    await wait_for_page_stability(
+                                        f"observe retry step {idx}",
+                                        force=True,
+                                        require_full_load=True
+                                    )
+                                    continue
+
+                                step_result["success"] = False
+
+                                if nav_issue:
+                                    step_result["error"] = (
+                                        f"Page navigation occurred during observe: {error_msg}. "
+                                        "This usually happens when:\n"
+                                        "1. The page automatically redirected\n"
+                                        "2. A popup or modal appeared\n"
+                                        "3. The page is still loading\n"
+                                        "Try: Add a 'wait' step before observe, or increase wait_after time"
+                                    )
+                                    step_result["error_code"] = "NAVIGATION_ERROR"
+                                elif "Server returned error" in error_msg:
+                                    step_result["error"] = (
+                                        f"Stagehand AI model error: {error_msg}. "
+                                        "Possible causes:\n"
+                                        "1. Missing or invalid MODEL_API_KEY in .env\n"
+                                        "2. MODEL_NAME not supported or incorrectly configured\n"
+                                        "3. Page content too complex for the instruction\n"
+                                        "4. Network issues with AI provider\n"
+                                        f"Current config: MODEL_NAME={settings.MODEL_NAME}, "
+                                        f"API_KEY={'set' if settings.MODEL_API_KEY else 'NOT SET'}"
+                                    )
+                                    step_result["error_code"] = "AI_MODEL_ERROR"
+                                else:
+                                    step_result["error"] = f"Observe failed: {error_msg}"
+                                    step_result["error_code"] = "OBSERVE_ERROR"
+                                break
 
                     elif step_type == "act":
-                        try:
-                            # Wait for page stability before acting - comprehensive check
-                            logger.info("Ensuring page stability before act operation...")
+                        nav_retry_attempted = False
+                        while True:
                             try:
-                                await page.wait_for_load_state("domcontentloaded", timeout=8000)
-                                logger.info("✓ DOM ready for act")
-                            except Exception as wait_error:
-                                logger.warning(f"DOM wait failed: {wait_error}")
+                                await wait_for_page_stability(
+                                    f"act step {idx}",
+                                    force=nav_retry_attempted,
+                                    require_full_load=True
+                                )
+                                logger.info("Proceeding with observe/act sequence")
 
-                            try:
-                                await page.wait_for_load_state("networkidle", timeout=8000)
-                                logger.info("✓ Network idle for act")
-                            except Exception as wait_error:
-                                logger.warning(f"Network idle wait failed: {wait_error}")
+                                results = await page.observe(instruction=instruction_text)
+                                if results:
+                                    await page.act(results[0])
+                                    step_result["success"] = True
+                                    step_result["data"] = {"action_performed": True}
+                                    await wait_for_page_stability(
+                                        f"post-act step {idx}",
+                                        force=True,
+                                        require_full_load=True
+                                    )
+                                else:
+                                    step_result["error"] = "No elements found to act upon"
+                                    step_result["error_code"] = "NO_ELEMENTS_FOUND"
+                                break
+                            except Exception as act_error:
+                                error_msg = str(act_error)
+                                nav_issue = (
+                                    "Execution context was destroyed" in error_msg
+                                    or "navigation" in error_msg.lower()
+                                )
+                                if nav_issue and not nav_retry_attempted:
+                                    nav_retry_attempted = True
+                                    logger.warning(
+                                        "Navigation detected during act; waiting for page to settle and retrying once"
+                                    )
+                                    await wait_for_page_stability(
+                                        f"act retry step {idx}",
+                                        force=True,
+                                        require_full_load=True
+                                    )
+                                    continue
 
-                            # Additional wait for dynamic content
-                            await asyncio.sleep(2)
-                            logger.info("✓ Page stable, proceeding with act")
-
-                            results = await page.observe(instruction=instruction_text)
-                            if results:
-                                await page.act(results[0])
-                                step_result["success"] = True
-                                step_result["data"] = {"action_performed": True}
-                            else:
-                                step_result["error"] = "No elements found to act upon"
-                                step_result["error_code"] = "NO_ELEMENTS_FOUND"
-                        except Exception as act_error:
-                            error_msg = str(act_error)
-                            if "Execution context was destroyed" in error_msg or "navigation" in error_msg.lower():
-                                step_result["error"] = f"Page navigation occurred during action: {error_msg}"
-                                step_result["error_code"] = "NAVIGATION_ERROR"
-                            else:
-                                step_result["error"] = f"Action failed: {error_msg}"
-                                step_result["error_code"] = "ACTION_ERROR"
+                                if nav_issue:
+                                    step_result["error"] = f"Page navigation occurred during action: {error_msg}"
+                                    step_result["error_code"] = "NAVIGATION_ERROR"
+                                else:
+                                    step_result["error"] = f"Action failed: {error_msg}"
+                                    step_result["error_code"] = "ACTION_ERROR"
+                                break
 
                     elif step_type == "extract":
                         try:
+                            await wait_for_page_stability(f"extract step {idx}", require_full_load=True)
                             logger.info(f"Calling page.extract with instruction: '{instruction_text}'")
                             extracted_data = await page.extract(instruction_text)
 
@@ -594,6 +623,8 @@ class StagehandService:
                         except Exception as e:
                             logger.warning(f"Screenshot failed for step {idx}: {e}")
 
+                    await wait_for_page_stability(f"post step {idx}", force=True)
+
                     if wait_after > 0:
                         await asyncio.sleep(wait_after / 1000)
 
@@ -614,6 +645,7 @@ class StagehandService:
                     step_result["execution_time"] = time.time() - step_start
                     steps_results.append(step_result)
 
+            await wait_for_page_stability("workflow completion", force=True, require_full_load=True)
             all_success = all(step["success"] for step in steps_results)
 
             import uuid
@@ -630,7 +662,9 @@ class StagehandService:
                 "steps": steps_results,
                 "total_execution_time": time.time() - start_time,
                 "started_at": datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat(),
-                "completed_at": end_time.isoformat()
+                "completed_at": end_time.isoformat(),
+                "model_used": settings.MODEL_NAME,
+                "execution_method": "multi-step"
             }
 
         except Exception as e:
@@ -650,7 +684,9 @@ class StagehandService:
                 "steps": [],
                 "total_execution_time": time.time() - start_time,
                 "started_at": datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat(),
-                "completed_at": end_time.isoformat()
+                "completed_at": end_time.isoformat(),
+                "model_used": settings.MODEL_NAME,
+                "execution_method": "multi-step"
             }
 
         finally:

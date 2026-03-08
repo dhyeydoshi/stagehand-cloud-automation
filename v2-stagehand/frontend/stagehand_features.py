@@ -13,10 +13,9 @@ class StagehandFeaturesUI:
     def render(self):
         st.header("Stagehand AI Features")
 
-        tab1, tab2, tab4 = st.tabs([
+        tab1, tab2, tab3 = st.tabs([
             "Quick Action",
             "Agent Workflow",
-            #"Extract Data",
             "Multi-Step"
         ])
 
@@ -26,10 +25,7 @@ class StagehandFeaturesUI:
         with tab2:
             self._render_agent_workflow()
 
-        # with tab3:
-        #     self._render_extraction()
-
-        with tab4:
+        with tab3:
             self._render_multistep()
 
     def _render_quick_action(self):
@@ -42,9 +38,8 @@ class StagehandFeaturesUI:
         - NOT: "Sign in to the website" (too complex)
         """)
 
-        # Clear results button
         if st.session_state.get('last_result_type') == "Action" and 'last_result' in st.session_state:
-            if st.button("🗑️ Clear Results", key="clear_action_results"):
+            if st.button("Clear Results", key="clear_action_results"):
                 if 'last_result' in st.session_state:
                     del st.session_state['last_result']
                 if 'last_result_type' in st.session_state:
@@ -75,7 +70,6 @@ class StagehandFeaturesUI:
                         st.session_state['last_result_type'] = "Action"
                         st.rerun()
 
-        # Display persisted results (after form, outside of submission)
         if st.session_state.get('last_result_type') == "Action" and 'last_result' in st.session_state:
             self._display_result(st.session_state['last_result'], "Action")
 
@@ -86,12 +80,11 @@ class StagehandFeaturesUI:
         **Best for:** Complex multi-step tasks
         - "Navigate to products and filter by Electronics"
         - "Search for AI automation and click first result"
-        - "Apply to first job posting with mock data"
+        - "Play a game of chess"
         """)
 
-        # Clear results button
         if st.session_state.get('last_result_type') == "Workflow" and 'last_result' in st.session_state:
-            if st.button("🗑️ Clear Results", key="clear_workflow_results"):
+            if st.button("Clear Results", key="clear_workflow_results"):
                 if 'last_result' in st.session_state:
                     del st.session_state['last_result']
                 if 'last_result_type' in st.session_state:
@@ -99,7 +92,7 @@ class StagehandFeaturesUI:
                 st.rerun()
 
         with st.form("agent_workflow_form"):
-            url = st.text_input("Starting URL", placeholder="https://example.com")
+            url = st.text_input("Starting URL", value="https://duckduckgo.com")
             instruction = st.text_area(
                 "Workflow Instructions",
                 placeholder="Navigate to products page and filter by Electronics",
@@ -124,83 +117,8 @@ class StagehandFeaturesUI:
                         st.session_state['last_result_type'] = "Workflow"
                         st.rerun()
 
-        # Display persisted results (after form, outside of submission)
         if st.session_state.get('last_result_type') == "Workflow" and 'last_result' in st.session_state:
             self._display_result(st.session_state['last_result'], "Workflow")
-
-    def _render_extraction(self):
-        st.subheader("Extract Data - Structured Extraction")
-
-        schemas_response = self.api.get_stagehand_schemas()
-
-        if isinstance(schemas_response, list):
-            schemas = {schema.get('name', f'schema_{i}'): schema for i, schema in enumerate(schemas_response)}
-        elif isinstance(schemas_response, dict):
-            schemas = schemas_response
-        else:
-            schemas = {}
-
-        if not schemas:
-            st.warning("No extraction schemas available. Please configure schemas in the backend.")
-            st.info("You can still use the 'Quick Action' or 'Agent Workflow' tabs for extraction without predefined schemas.")
-            return
-
-        with st.form("extraction_form"):
-            url = st.text_input("Target URL", placeholder="https://example.com/product")
-
-            schema_name = st.selectbox(
-                "Data Schema",
-                options=list(schemas.keys()),
-                format_func=lambda x: f"{x} - {schemas.get(x, {}).get('description', 'N/A')}"
-            )
-
-            if schema_name and schema_name in schemas:
-                with st.expander("Schema Fields", expanded=False):
-                    schema_fields = schemas[schema_name].get('fields', [])
-
-                    if isinstance(schema_fields, list):
-                        if schema_fields:
-                            st.write("**Fields:**")
-                            for field in schema_fields:
-                                if isinstance(field, str):
-                                    st.write(f"• **{field}**")
-                                elif isinstance(field, dict):
-                                    field_name = field.get('name', 'unknown')
-                                    field_desc = field.get('description', '')
-                                    required = "[Required]" if field.get('required') else "[Optional]"
-                                    st.write(f"{required} **{field_name}**: {field_desc}")
-                        else:
-                            st.write("No field details available for this schema.")
-
-                    elif isinstance(schema_fields, dict):
-                        if schema_fields:
-                            for field, info in schema_fields.items():
-                                if isinstance(info, dict):
-                                    required = "[Required]" if info.get('required') else "[Optional]"
-                                    st.write(f"{required} **{field}**: {info.get('description', 'N/A')}")
-                                else:
-                                    st.write(f"• **{field}**: {info}")
-                        else:
-                            st.write("No field details available for this schema.")
-
-                    else:
-                        st.write("No field details available for this schema.")
-
-            instruction = st.text_area(
-                "Extraction Instructions",
-                placeholder="Extract product name, price, and rating",
-                height=80
-            )
-
-            take_screenshots = st.checkbox("Take Screenshots", value=True)
-
-            submitted = st.form_submit_button("Extract Data", width='stretch')
-
-        if submitted and url and instruction and schema_name:
-            with st.spinner("Extracting data..."):
-                result = self.api.stagehand_extract(url, instruction, schema_name, take_screenshots)
-                if result:
-                    self._display_result(result, "Extraction")
 
     def _render_multistep(self):
         st.subheader("Multi-Step Workflow - Sequential Instructions")
@@ -212,23 +130,20 @@ class StagehandFeaturesUI:
         - Step 2: "Select Electronics category"
         - NOT: "Open filters and select Electronics" (too complex for one step)
         
-        **Important for Complex Sites (e-commerce, banking, etc.):**
-        - Add a "wait" step (3000-5000ms) as your FIRST step
-        - This ensures all content, scripts, and CSS are fully loaded
-        - Use higher wait_after values (2000-3000ms) between steps
-        - If you still get navigation errors, increase wait times further
         """)
 
         if 'multistep_instructions' not in st.session_state:
             st.session_state.multistep_instructions = []
 
-        # Form counter to force form reset
-        if 'form_counter' not in st.session_state:
-            st.session_state.form_counter = 0
+        if 'bulk_step_buffer' not in st.session_state:
+            st.session_state.bulk_step_buffer = [{
+                "instruction_type": "observe",
+                "instruction_text": "",
+                "wait_after": 2000
+            }]
 
-        # Clear results button
         if st.session_state.get('last_result_type') == "Multi-Step" and 'last_result' in st.session_state:
-            if st.button("🗑️ Clear Results", key="clear_multistep_results"):
+            if st.button("Clear Results", key="clear_multistep_results"):
                 if 'last_result' in st.session_state:
                     del st.session_state['last_result']
                 if 'last_result_type' in st.session_state:
@@ -237,61 +152,91 @@ class StagehandFeaturesUI:
 
         col1, col2 = st.columns([3, 1])
         with col1:
-            url = st.text_input("Target URL", value="https://example.com", key="multistep_url")
+            url = st.text_input("Target URL", value="https://duckduckgo.com/", key="multistep_url")
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Clear All"):
                 st.session_state.multistep_instructions = []
                 st.rerun()
 
-        with st.expander("Add New Step", expanded=True):
-            form_key = f"add_step_form_{st.session_state.form_counter}"
-            with st.form(form_key, clear_on_submit=True):
-                col1, col2 = st.columns([1, 2])
+        with st.expander("Add Steps", expanded=True):
+            st.caption("Add multiple steps at once. Leave instruction blank to skip a row.")
+            column_config = {
+                "instruction_type": st.column_config.SelectboxColumn(
+                    "Step Type",
+                    options=["observe", "act", "extract", "wait", "screenshot"],
+                    default="observe",
+                    required=True
+                ),
+                "instruction_text": st.column_config.TextColumn(
+                    "Instruction",
+                    help="Provide a natural-language instruction for the selected step type",
+                    required=True
+                ),
+                "wait_after": st.column_config.NumberColumn(
+                    "Wait after (ms)",
+                    min_value=0,
+                    max_value=10000,
+                    step=500,
+                    default=2000
+                )
+            }
 
-                with col1:
-                    step_type = st.selectbox(
-                        "Step Type",
-                        options=["observe", "act", "extract", "wait", "screenshot"],
-                        format_func=lambda x: {
-                            "observe": "Observe",
-                            "act": "Act",
-                            "extract": "Extract",
-                            "wait": "Wait",
-                            "screenshot": "Screenshot"
-                        }[x],
-                        help="Navigate (goto) is not needed - the workflow automatically starts at the Target URL above"
-                    )
+            bulk_data = st.data_editor(
+                st.session_state.bulk_step_buffer,
+                num_rows="dynamic",
+                width='stretch',
+                column_config=column_config,
+                key="bulk_step_editor"
+            )
+            st.session_state.bulk_step_buffer = bulk_data
 
-                with col2:
-                    instruction = st.text_input(
-                        "Instruction",
-                        placeholder=self._get_step_placeholder(step_type),
-                        help=self._get_step_help(step_type)
-                    )
+            action_col, reset_col = st.columns(2)
+            with action_col:
+                add_steps = st.button("Add Listed Steps", type="primary", width='stretch')
+            with reset_col:
+                reset_buffer = st.button("Reset List", width='stretch')
 
-                col_wait, col_button = st.columns([2, 1])
+            if reset_buffer:
+                st.session_state.bulk_step_buffer = [{
+                    "instruction_type": "observe",
+                    "instruction_text": "",
+                    "wait_after": 2000
+                }]
+                st.rerun()
 
-                with col_wait:
-                    wait_after = st.slider("Wait after (ms)", 0, 10000, 2000, 500)
-
-                with col_button:
-                    st.write("")  # Spacing
-                    submitted = st.form_submit_button("Add Step", use_container_width=True, type="primary")
-
-                if submitted and instruction:
-                    step_number = len(st.session_state.multistep_instructions) + 1
-                    st.session_state.multistep_instructions.append({
-                        "step_number": step_number,
-                        "instruction_type": step_type,
-                        "instruction_text": instruction,
-                        "wait_after": wait_after
+            if add_steps:
+                valid_rows = []
+                for row in bulk_data:
+                    if not row:
+                        continue
+                    instruction_text = (row.get("instruction_text") or "").strip()
+                    if not instruction_text:
+                        continue
+                    valid_rows.append({
+                        "instruction_type": row.get("instruction_type") or "observe",
+                        "instruction_text": instruction_text,
+                        "wait_after": int(row.get("wait_after") or 2000)
                     })
-                    st.session_state.form_counter += 1  # Increment to force new form
-                    st.success(f"Step {step_number} added successfully!")
+
+                if not valid_rows:
+                    st.warning("No valid steps to add. Provide at least one instruction.")
+                else:
+                    start_index = len(st.session_state.multistep_instructions)
+                    for idx, row in enumerate(valid_rows, start=1):
+                        st.session_state.multistep_instructions.append({
+                            "step_number": start_index + idx,
+                            "instruction_type": row["instruction_type"],
+                            "instruction_text": row["instruction_text"],
+                            "wait_after": row["wait_after"]
+                        })
+                    st.session_state.bulk_step_buffer = [{
+                        "instruction_type": "observe",
+                        "instruction_text": "",
+                        "wait_after": 2000
+                    }]
+                    st.success(f"Added {len(valid_rows)} step(s)!")
                     st.rerun()
-                elif submitted and not instruction:
-                    st.error("Please enter an instruction")
 
         if st.session_state.multistep_instructions:
             st.divider()
@@ -347,13 +292,25 @@ class StagehandFeaturesUI:
         if result.get('success'):
             st.success(f"{result_type} completed successfully!")
 
-            col1, col2 = st.columns(2)
+            # Display message if available (for agent workflows)
+            if result.get('message'):
+                st.info(f"**Agent Response:**\n\n{result['message']}")
+
+            # Display model information
+            col1, col2, col3 = st.columns(3)
             with col1:
                 if 'processing_time' in result:
                     st.metric("Processing Time", f"{result['processing_time']:.2f}s")
             with col2:
                 if 'observed_elements' in result:
                     st.metric("Observed Elements", result['observed_elements'])
+                elif result.get('agent_model'):
+                    st.metric("CUA Model", result['agent_model'])
+                elif result.get('model_used'):
+                    st.metric("LLM Model", result['model_used'])
+            with col3:
+                if result.get('execution_method'):
+                    st.metric("Method", result['execution_method'])
 
             if result.get('data'):
                 st.write("**Extracted Data:**")
@@ -398,6 +355,12 @@ class StagehandFeaturesUI:
         else:
             st.error(f"{result_type} failed: {result.get('error', 'Unknown error')}")
 
+            # Show model info even on failure
+            if result.get('agent_model'):
+                st.caption(f"CUA Model used: {result['agent_model']}")
+            elif result.get('model_used'):
+                st.caption(f"LLM Model used: {result['model_used']}")
+
     def _display_multistep_result(self, result: Dict):
         st.divider()
         st.subheader("Multi-Step Workflow Results")
@@ -407,7 +370,7 @@ class StagehandFeaturesUI:
         else:
             st.error("Workflow failed")
 
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("Total Steps", result.get("total_steps", 0))
         with col2:
@@ -419,6 +382,11 @@ class StagehandFeaturesUI:
             st.metric("Success Rate", f"{success_rate:.0f}%")
         with col4:
             st.metric("Execution Time", f"{result.get('total_execution_time', 0):.2f}s")
+        with col5:
+            if result.get('model_used'):
+                st.metric("LLM Model", result['model_used'])
+            elif result.get('execution_method'):
+                st.metric("Method", result['execution_method'])
 
         st.subheader("Step-by-Step Results")
 

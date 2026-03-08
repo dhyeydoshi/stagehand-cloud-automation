@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Separate LLM and CUA Model Configuration**: Implemented distinct model configurations for different workflow types
+  - Normal LLM models (MODEL_NAME, MODEL_API_KEY, MODEL_BASE_URL) used for single-step and multi-step workflows
+  - CUA models (AGENT_MODEL_NAME, AGENT_MODEL_API_KEY, AGENT_MODEL_BASE_URL) used specifically for agent workflows
+  - Optional separate API keys and base URLs for CUA models with automatic fallback to normal LLM settings
+  - Clear separation of concerns between traditional browser automation and autonomous agent workflows
+- **Model Information Display**: Frontend now shows which model is being used for each workflow
+  - Single-step actions display the LLM model used
+  - Multi-step workflows show the LLM model used
+  - Agent workflows prominently display the CUA model used
+  - Model information shown in metrics section and even on error
+- **Agent Message Display**: Agent workflow results now show extracted information prominently
+  - Message field displays task completion status and memorized facts
+  - Memorized facts formatted as bullet points in the message
+  - Clear "Agent Response" section in the frontend
+  - Facts extracted by the agent are no longer hidden in raw JSON
+- **Microsoft CUA Agent Integration**: Added support for Microsoft Computer Use Agent (Fara-7B model)
+  - New extension system in `backend/extensions/microsoft_cua/`
+  - Factory pattern for agent client creation
+  - Full integration with Stagehand agent system
+  - Supports Azure OpenAI endpoints for CUA execution
+- **Fact Extraction & Display**: Agent now properly returns extracted data to frontend
+  - Memorized facts from `pause_and_memorize_fact` actions are included in final message
+  - Structured display with "Extracted Information:" section
+  - Bullet-point formatting for easy readability
+- **Enhanced Agent Instructions**: Improved system prompts for better data extraction
+  - Clear guidelines for using `pause_and_memorize_fact`
+  - Fact formatting standards 
+  - Better termination messages with extracted data summaries
+- **Dockerfile**: Added Dockerfile for containerized deployment
+  - Based on official Python 3.12 slim image
+  - Installs dependencies and sets up the FastAPI server and Streamlit frontend
+  - Entry point configured to run uvicorn server
+### Changed
+- **Model Configuration Architecture**: Refactored backend to use separate model configurations based on workflow type
+  - `_create_session()` now accepts `workflow_type` parameter ("normal" or "agent")
+  - Single-step and multi-step workflows automatically use normal LLM configuration
+  - Agent workflows automatically use CUA model configuration with fallback to LLM settings
+  - Improved logging shows which model type is being used for each session
+- **API Response Schemas**: Enhanced response models to include execution metadata
+  - `ActionResponse` now includes `model_used` and `execution_method` fields
+  - `WorkflowResponse` now includes `message`, `memorized_facts`, `agent_model`, and `execution_method` fields
+  - `MultiStepJobResponse` now includes `model_used` and `execution_method` fields
+  - All responses provide clear visibility into which AI model processed the request
+- **Frontend Result Display**: Completely redesigned result presentation
+  - Agent responses show message prominently in an info box
+  - Model information displayed in dedicated metrics
+  - Cleaner layout with 3-5 column metrics grid
+  - Better error messages with model context
+- **Multi-Step Stability Checks**: Backend now performs adaptive load-state checks with configurable intervals (`stability_check_interval_ms`, `stability_timeout_ms`, `stability_extra_wait_ms`) instead of fixed sleep calls, cutting idle time while keeping Stagehand runs stable.
+- **Frontend Health Polling**: Streamlit sidebar caches `/health` responses for 30 seconds and adds a manual refresh button, reducing redundant requests during reruns.
+- **Multi-Step UX**: The single-step form (and its auto-resetting wait slider) has been removed; the streamlined bulk-add table now handles all workflow creation with persistent wait values, add/reset buttons, and easy multi-row editing.
+- **Workflow Load Guardrails**: Multi-step backend waits for `domcontentloaded`, `load`, and `networkidle` states before and after navigations/critical actions so pages fully load scripts/CSS before Stagehand sessions close.
+- **Observe/Act Auto-Retry**: Navigation-induced "Execution context was destroyed" errors now trigger an automatic stability wait and one retry before surfacing a failure, reducing spurious errors on redirect-heavy pages.
+- **Backend API Cleanup**: Simplified main.py by removing redundant code
+- **Schema Simplification**: Streamlined stagehand_schemas.py
+- **Service Layer Optimization**: Refactored stagehand_service.py for better maintainability
+- **Frontend Code Reduction**: Cleaned up stagehand_features.py
+
+### Technical Details
+- Microsoft CUA agent uses Azure OpenAI API with custom endpoints
+- Agent viewport is intelligently resized for optimal model performance (1288x711 → calculated dimensions)
+- Screenshot compression and caching to reduce token usage
+- Maximum image limit configurable (default: 1 recent screenshot)
+- Temperature set to 0 for deterministic outputs
+- Supports multiple action types: click, type, scroll, wait, web_search, pause_and_memorize_fact, terminate
+- Self-healing capabilities when DOM changes during execution
+
+---
+
 ## [1.0.1]
 
 ### Changed
@@ -71,13 +143,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified to focus on three core workflows: Quick Action, Agent Workflow, and Multi-Step
   - Extraction still available through Quick Action and Multi-Step workflows
   - Files modified:
-    - `v2-stagehand/frontend/api_client.py` (5 lines removed)
-    - `v2-stagehand/frontend/frontend_config.py` (2 lines removed)
-    - `v2-stagehand/frontend/main.py` (38 lines changed, net -22)
-    - `v2-stagehand/frontend/stagehand_features.py` (46 lines changed, net -30)
+    - `v2-stagehand/frontend/api_client.py`
+    - `v2-stagehand/frontend/frontend_config.py`
+    - `v2-stagehand/frontend/main.py`
+    - `v2-stagehand/frontend/stagehand_features.py`
 
 ### Fixed
-- **Bug Fixes**: Various bug fixes and improvements (see commit 8ea9cd4)
+- **Bug Fixes**: Various bug fixes and improvements
 - **README Updates**: Updated documentation to reflect new features and functionality
 
 ---
@@ -98,8 +170,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for both LOCAL and BROWSERBASE environments
 - Screenshot capture with overlay visualization
 - Structured data extraction with Pydantic schemas
-- AWS deployment options (ECS and Lambda)
-- Azure deployment support
 
 ### Technical Stack
 - **Backend**: FastAPI with async/await patterns
@@ -149,23 +219,5 @@ If you were using the "Extract Data" tab (removed in v1.0.0):
 
 - Scroll action parsing errors may occur with certain AI models (validation error for ScrollAction)
 - Large page content may cause timeouts with some AI providers
-- Headless mode may still briefly show browser window in some configurations
-
----
-
-## Upgrade Guide
-
-### From v0.x to v1.0.0
-
-1. If using Extract Data tab, migrate to Quick Action or Multi-Step workflows
-2. Update any scripts that relied on separate extraction endpoint
-3. Review and update schema usage to match new patterns
-
-### From v1.0.0 to Current
-
-1. No action needed - changes are backward compatible
-2. Update UI usage patterns to leverage automatic navigation in Multi-Step workflows
-3. Remove any manual "goto" steps that navigate to the initial URL (now automatic)
-
 ---
 

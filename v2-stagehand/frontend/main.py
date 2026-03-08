@@ -1,9 +1,12 @@
 import streamlit as st
 import logging
+from datetime import datetime, timezone
 
 from frontend_config import get_frontend_settings
 
 frontend_settings = get_frontend_settings()
+HEALTH_STATUS_KEY = "backend_health_status"
+HEALTH_STATUS_TTL_SECONDS = 30
 
 
 logging.basicConfig(
@@ -56,6 +59,30 @@ def init_session_state():
         st.session_state.api_client = APIClient()
 
 
+def _seconds_since(timestamp: datetime) -> float:
+    return (datetime.now(timezone.utc) - timestamp).total_seconds()
+
+
+def get_cached_health_status():
+    cache = st.session_state.get(HEALTH_STATUS_KEY)
+    if cache:
+        age = _seconds_since(cache["checked_at"])
+        if age < HEALTH_STATUS_TTL_SECONDS:
+            return cache["status"], age
+
+    status = st.session_state.api_client.health_check()
+    st.session_state[HEALTH_STATUS_KEY] = {
+        "status": status,
+        "checked_at": datetime.now(timezone.utc)
+    }
+    return status, 0.0
+
+
+def invalidate_health_cache():
+    if HEALTH_STATUS_KEY in st.session_state:
+        del st.session_state[HEALTH_STATUS_KEY]
+
+
 def render_sidebar():
     with st.sidebar:
         st.markdown(f"""
@@ -65,11 +92,21 @@ def render_sidebar():
         </div>
         """, unsafe_allow_html=True)
 
-        if st.session_state.api_client.health_check():
+        backend_online, age_seconds = get_cached_health_status()
+        if backend_online:
             st.success("Backend Connected")
         else:
             st.error("Backend Offline")
             st.info("Start backend:\n`python backend/main.py`")
+        cache_message = (
+            f"Status cached {int(age_seconds)}s ago "
+            f"(auto-refresh every {HEALTH_STATUS_TTL_SECONDS}s)"
+        )
+        st.caption(cache_message)
+
+        if st.button("Refresh backend status", key="refresh_backend_status", width='stretch'):
+            invalidate_health_cache()
+            st.rerun()
 
         st.divider()
 
@@ -99,6 +136,10 @@ def render_sidebar():
             BROWSERBASE_PROJECT_ID=your_project (if using BROWSERBASE)
             MODEL_API_KEY=your_model_key
             MODEL_NAME=your_model_name
+            ENABLE_MICROSOFT_CUA=True(if using Microsoft CUA)
+            AGENT_MODEL_NAME=microsoft/Fara-7B           
+            AGENT_MODEL_API_KEY=your_agent_model_key
+            AGENT_MODEL_BASE_URL=your_agent_model_base_url
             ```
             
             Set these in `backend/.env` file.
@@ -121,7 +162,7 @@ def render_sidebar():
             - Step 3: "Click apply"
             
             **Use Agent for complex tasks:**
-            - "Navigate to jobs and apply to first engineer position"
+            - "Play a game of chess with a bot on chess.com"
             """)
 
 
@@ -155,20 +196,10 @@ def render_home():
         - Smart decision making
         - Up to 100 steps
         
-        **Example:** "Apply to first job with mock data"
+        **Example:** "Play a game of chess with a bot on chess.com"
         """)
 
     with col2:
-        # st.markdown("""
-        # ### Extract Data
-        # Extract structured data using predefined schemas.
-        # - Product information
-        # - Job postings
-        # - Company details
-        #
-        # **Example:** Extract name, price, and rating
-        # """)
-
         st.markdown("""
         ### Multi-Step Workflows
         Build sequential workflows with full control.
@@ -210,7 +241,7 @@ def render_home():
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("Launch Stagehand", type="primary", use_container_width=True):
+        if st.button("Launch Stagehand", type="primary", width='stretch'):
             st.session_state.show_features = True
             st.rerun()
 

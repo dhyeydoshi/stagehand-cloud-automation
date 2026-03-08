@@ -1,24 +1,23 @@
+import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import uvicorn
+from fastapi.middleware.gzip import GZipMiddleware
 
 from config import settings
 from services.stagehand_service import StagehandService
 from schemas.stagehand_schemas import (
     ActionRequest,
     ActionResponse,
-    ExtractionRequest,
-    ExtractionResponse,
     WorkflowRequest,
     WorkflowResponse,
-    ProductData,
-    JobPosting,
-    CompanyInfo,
 )
 from schemas.multistep_schemas import MultiStepJobRequest, MultiStepJobResponse
 from schemas.common import HealthResponse
@@ -32,13 +31,10 @@ logger = logging.getLogger(__name__)
 
 # Initialize Stagehand service
 stagehand_service = StagehandService()
+results: dict[str, Any] = {}
 
-# Schema mapping for extraction
-SCHEMA_MAP = {
-    "ProductData": ProductData,
-    "JobPosting": JobPosting,
-    "CompanyInfo": CompanyInfo,
-}
+# Configurable cleanup threshold (1 hour)
+CLEANUP_THRESHOLD = timedelta(hours=1)
 
 
 @asynccontextmanager
@@ -50,22 +46,22 @@ async def lifespan(app: FastAPI):
         # Verify Stagehand configuration
         connection_ok = await stagehand_service.test_connection()
         if connection_ok:
-            logger.info("✅ Stagehand configuration verified")
+            logger.info("Stagehand configuration verified")
         else:
-            logger.warning("⚠️  Stagehand configuration incomplete - will initialize on first use")
+            logger.warning("Stagehand configuration incomplete - will initialize on first use")
     except Exception as e:
-        logger.warning(f"⚠️  Stagehand check failed: {e}")
+        logger.warning(f"Stagehand check failed: {e}")
 
-    logger.info("🚀 Application startup completed")
+    logger.info("Application startup completed")
 
     yield
 
     logger.info("Shutting down Stagehand API...")
-    logger.info("✅ Application shutdown complete (session-per-job mode - no cleanup needed)")
+    logger.info("Application shutdown complete (session-per-job mode - no cleanup needed)")
 
 
 app = FastAPI(
-    title="Stagehand AI Automation API",
+    title=settings.APP_NAME + " API",
     description="AI-powered browser automation with Stagehand",
     version=settings.VERSION,
     lifespan=lifespan
@@ -78,6 +74,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # Compress responses >1KB
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
@@ -139,55 +136,9 @@ async def execute_action(request: ActionRequest):
             detail=f"Action execution failed: {str(e)}"
         )
 
-
-@app.post(
-    "/api/v1/stagehand/extract",
-    response_model=ExtractionResponse,
-    tags=["Stagehand"],
-    summary="Extract structured data"
-)
-async def extract_data(request: ExtractionRequest):
+async def run_workflow_background(task_id: str, request: WorkflowRequest):
     try:
-        logger.info(f"Extracting data from {request.url} using schema {request.schema_name}")
-
-        # Get the actual Pydantic schema class
-        schema_class = SCHEMA_MAP.get(request.schema_name)
-        if not schema_class:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown schema: {request.schema_name}. Available: {list(SCHEMA_MAP.keys())}"
-            )
-
-        result = await stagehand_service.extract_with_schema(
-            url=request.url,
-            instruction=request.instruction,
-            schema=schema_class,  # Pass actual Pydantic class, not string
-            config={
-                "take_screenshots": request.take_screenshots
-            }
-        )
-        logger.info(f"Extraction completed successfully")
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Extraction failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Extraction failed: {str(e)}"
-        )
-
-
-@app.post(
-    "/api/v1/stagehand/workflow",
-    response_model=WorkflowResponse,
-    tags=["Stagehand"],
-    summary="Execute agent workflow"
-)
-async def execute_workflow(request: WorkflowRequest):
-    try:
-        logger.info(f"Executing workflow on {request.url}: {request.workflow_instruction}")
+        logger.info(f"Running background workflow on {request.url}: {request.workflow_instruction}")
         result = await stagehand_service.execute_workflow_with_agent(
             url=request.url,
             workflow_instruction=request.workflow_instruction,
@@ -197,24 +148,56 @@ async def execute_workflow(request: WorkflowRequest):
                 "wait_between_actions": request.wait_between_actions
             }
         )
-        logger.info(f"Workflow completed successfully")
-        return result
-
+        results[task_id] = {
+            "data": WorkflowResponse(
+                success=result["success"],
+                workflow=request.workflow_instruction,
+                message=result.get("message"),
+                memorized_facts=result.get("memorized_facts", []),
+                result=result,
+                url=request.url,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                processing_time=result.get("processing_time", 0.0),
+                execution_method=result.get("execution_method", "agent"),
+                agent_model=result.get("agent_model"),
+            ),
+            "timestamp": datetime.now(timezone.utc)
+        }
+        logger.info(f"Background workflow {task_id} completed")
     except Exception as e:
-        logger.error(f"Workflow execution failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Workflow execution failed: {str(e)}"
-        )
+        logger.error(f"Background workflow {task_id} failed: {e}")
+        results[task_id] = {
+            "data": {"status": "failed", "error": str(e)},
+            "timestamp": datetime.now(timezone.utc)
+        }
 
 
-@app.post("/api/v1/stagehand/multistep",
-    response_model=MultiStepJobResponse,
+
+@app.post(
+    "/api/v1/stagehand/workflow",
+    response_model=WorkflowResponse,
     tags=["Stagehand"],
-    summary="Execute multi-step sequential workflow")
-async def execute_multistep(request: MultiStepJobRequest):
+    summary="Execute agent workflow (supports Google, OpenAI, Anthropic, Microsoft FARA(Local model))"
+)
+async def execute_workflow(background_tasks: BackgroundTasks, request: WorkflowRequest):
+    task_id = f"workflow_{datetime.now(timezone.utc).isoformat()}"
+    background_tasks.add_task(run_workflow_background, task_id, request)
+    return {"task_id": task_id, "status": "running"}
+
+
+@app.get("/api/v1/stagehand/workflow/{task_id}")
+async def get_workflow_status(task_id: str):
+    if task_id in results:
+        entry = results[task_id]
+        if datetime.now(timezone.utc) - entry["timestamp"] > CLEANUP_THRESHOLD:
+            del results[task_id]
+            return {"status": "not_found"}
+        return entry["data"]
+    return {"status": "not_found"}
+
+async def run_multistep_background(task_id: str, request: MultiStepJobRequest):
     try:
-        logger.info(f"Executing multi-step workflow on {request.url} with {len(request.instructions)} steps")
+        logger.info(f"Running background multi-step on {request.url} with {len(request.instructions)} steps")
         result = await stagehand_service.process_multi_step_instructions(
             url=request.url,
             instructions=request.instructions,
@@ -224,52 +207,58 @@ async def execute_multistep(request: MultiStepJobRequest):
                 "stop_on_error": request.stop_on_error
             }
         )
-        logger.info(f"Multi-step workflow completed")
-        return result
-
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        results[task_id] = {
+            "data": result,
+            "timestamp": datetime.now(timezone.utc)
+        }
+        logger.info(f"Background multi-step {task_id} completed")
     except Exception as e:
-        logger.error(f"Multi-step workflow failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Multi-step workflow failed: {str(e)}"
-        )
-
-
-@app.get("/api/v1/stagehand/schemas",
-    tags=["Stagehand"],
-    summary="List available extraction schemas")
-async def list_available_schemas():
-    try:
-        schemas = [
-            {
-                "name": "ProductData",
-                "description": "Extract product information",
-                "fields": ["name", "price", "rating", "in_stock", "description"]
-            },
-            {
-                "name": "JobPosting",
-                "description": "Extract job posting details",
-                "fields": ["title", "company", "location", "salary_range", "description", "requirements"]
-            },
-            {
-                "name": "CompanyInfo",
-                "description": "Extract company information",
-                "fields": ["name", "description", "founded_year", "employee_count", "industry"]
-            }
-        ]
-
-        return {
-            "schemas": schemas,
-            "note": "Schemas are optional. You can also extract data without schemas using natural language instructions."
+        logger.error(f"Background multi-step {task_id} failed: {e}")
+        results[task_id] = {
+            "data": {"status": "failed", "error": str(e)},
+            "timestamp": datetime.now(timezone.utc)
         }
 
-    except Exception as e:
-        logger.error(f"Error listing schemas: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list schemas"
-        )
 
+
+@app.post("/api/v1/stagehand/multistep",
+    tags=["Stagehand"],
+    summary="Execute multi-step sequential workflow")
+async def execute_multistep(background_tasks: BackgroundTasks, request: MultiStepJobRequest):
+    task_id = f"multistep_{datetime.now(timezone.utc).isoformat()}"
+    background_tasks.add_task(run_multistep_background, task_id, request)
+    return {"task_id": task_id, "status": "running"}
+
+@app.get("/api/v1/stagehand/multistep/{task_id}")
+async def get_multistep_status(task_id: str):
+    if task_id in results:
+        entry = results[task_id]
+        if datetime.now(timezone.utc) - entry["timestamp"] > CLEANUP_THRESHOLD:
+            del results[task_id]
+            return {"status": "not_found"}
+        return entry["data"]
+    return {"status": "not_found"}
+
+@app.get("/api/v1/stagehand/multistep/{task_id}/stream")
+async def stream_multistep_results(task_id: str):
+    if task_id not in results:
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
+    entry = results[task_id]
+    if datetime.now(timezone.utc) - entry["timestamp"] > CLEANUP_THRESHOLD:
+        del results[task_id]
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
+    result = entry["data"]
+    if not isinstance(result, dict) or "steps" not in result:
+        return JSONResponse(status_code=400, content={"error": "Invalid result format"})
+
+    async def generate():
+        for step in result["steps"]:
+            yield f"data: {json.dumps(step)}\n\n"
+            await asyncio.sleep(0.1)  # Simulate streaming delay
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/plain")
 
 
 # Error Handlers
@@ -309,4 +298,3 @@ if __name__ == "__main__":
         log_level=settings.LOG_LEVEL.lower()
 
     )
-

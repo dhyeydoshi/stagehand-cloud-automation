@@ -13,16 +13,16 @@ def handle_api_errors(func):
         try:
             return func(*args, **kwargs)
         except requests.exceptions.Timeout:
-            st.error("⏱️ Request timed out. Please try again.")
+            st.error("Request timed out. Please try again.")
             return None
         except requests.exceptions.ConnectionError:
             st.error("Cannot connect to backend. Ensure it's running on http://localhost:8000")
             return None
         except requests.exceptions.HTTPError as e:
-            st.error(f"❌ API Error: {e.response.status_code} - {e.response.text}")
+            st.error(f"API Error: {e.response.status_code} - {e.response.text}")
             return None
         except Exception as e:
-            st.error(f"❌ Unexpected error: {str(e)}")
+            st.error(f"Unexpected error: {str(e)}")
             logger.exception("API call failed")
             return None
     return wrapper
